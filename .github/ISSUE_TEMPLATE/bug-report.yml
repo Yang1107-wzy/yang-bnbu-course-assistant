@@ -1,0 +1,52 @@
+name: Bug report
+description: 报告 Yang 抢课脚本的可复现问题（请勿提交账号或登录数据）
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我只启用了一个 Yang 抢课脚本
+          required: true
+        - label: 我已运行 Test 并记录脱敏状态
+          required: true
+        - label: 我确认内容不含姓名、学号、Cookie、Token 或完整登录页面
+          required: true
+  - type: input
+    attributes:
+      label: 脚本版本
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Chrome 与 Tampermonkey 版本
+      placeholder: Chrome 版本；Tampermonkey 版本
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: 页面
+      options:
+        - elective.do 状态页
+        - eleDetail.do 详情页
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 复现步骤
+      description: 使用虚构或脱敏课程信息描述最短复现步骤。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 实际结果与脱敏诊断
+    validations:
+      required: true

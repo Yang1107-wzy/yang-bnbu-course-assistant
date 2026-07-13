@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "selectionWindows": [
+    { "id": "round-1", "label": "第一轮", "enabled": true, "startText": "2026-07-20T10:00:00", "endText": "2026-07-20T13:00:00" },
+    { "id": "round-2", "label": "第二轮", "enabled": true, "startText": "2026-07-20T15:00:00", "endText": "2026-07-20T18:00:00" },
+    { "id": "round-3", "label": "第三轮", "enabled": true, "startText": "2026-07-21T10:00:00", "endText": "2026-07-22T18:00:00" }
+  ],
+  "targets": [
+    { "courseCode": "DEMO1001", "courseName": "Example Major Elective", "section": "1001", "category": "ME" },
+    { "courseCode": "DEMO2001", "courseName": "Example Technology Course", "section": "1001", "category": "ME" },
+    { "courseCode": "DEMO3001", "courseName": "Example Free Elective", "section": "1002", "category": "FE" }
+  ]
+}

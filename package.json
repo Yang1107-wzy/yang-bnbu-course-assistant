@@ -1,0 +1,32 @@
+{
+  "name": "yang-bnbu-course-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yang 抢课脚本：BNBU MIS 可视化选课与轮候 Tampermonkey 助手",
+  "author": "Yang1107-wzy",
+  "license": "MIT",
+  "homepage": "https://github.com/Yang1107-wzy/yang-bnbu-course-assistant",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yang1107-wzy/yang-bnbu-course-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint src tests tools build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node build.mjs",
+    "check": "npm run lint && npm test && npm run build && node tools/check-dist.mjs",
+    "package": "npm run build && node tools/check-dist.mjs && node tools/package-release.mjs && node tools/check-release.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "jsdom": "^26.0.0"
+  }
+}

@@ -1,0 +1,53 @@
+# Changelog
+
+## 1.0.0 - 2026-07-13
+
+- Published the project as **Yang 抢课脚本** under the MIT License.
+- Added public-safe DEMO targets, sanitized fixtures and a branded standalone userscript.
+- Added professional installation, usage, security and contribution documentation.
+- Added reproducible Release packaging with SHA-256 checksums.
+- Added GitHub Actions verification for Node.js 20, tests, build, dist safety and packaging.
+
+## 0.3.0 - 2026-07-13
+
+- Added separate immediate and scheduled start paths.
+- Added the three official July 20–22, 2026 Beijing-time selection windows with an editable window editor.
+- Added same-origin BNBU HTTP Date calibration with RTT/uncertainty display and local-clock fallback.
+- Added adaptive randomized polling: no far-future reload, 15–25s preheat, 4–7s acceleration and bounded 1.5–2.5s active polling.
+- Added sleep/wake schedule reconciliation, cross-round pause/resume and automatic stop when all targets are registered.
+- Migrated course configuration from v2 while starting with clean v3 runtime/control state.
+
+## 0.2.3 - 2026-07-13
+
+- Removed all local credit and waiting-queue-size gates from `Join Waiting List`.
+- A uniquely matched target with an approved `joinWaiting` entry now submits immediately while running.
+- Removed automatic waiting-list detail inspection and obsolete credit/queue-limit configuration fields.
+
+## 0.2.2 - 2026-07-13
+
+- Corrected the live BNBU credit icons: `67.png` is Assigned, `16.png` is Waiting and `68.png` is Selected.
+- Added an end-to-end automatic `joinWaiting` regression using visible queue count and category credits.
+- Clarified STOPPED and waiting-list UI messages so Start is visibly required for automatic actions.
+
+## 0.2.1 - 2026-07-13
+
+- Migrated every MIS userscript match, test URL, diagnostic tool and document to the current BNBU hostname.
+
+## 0.2.0 - 2026-07-13
+
+- Replaced the failed DOM `click()` path with direct calls to approved MIS page functions through `unsafeWindow`.
+- Simplified the UI to Test, Start, Stop, course settings and a 3–60 second polling input.
+- Removed Armed/Pause controls and all course dependencies; all targets are independently scanned and queued.
+- Added FIFO cross-tab action records, 1.2 second spacing, function-signature revalidation and explicit READY diagnostics.
+- Added clean `.v2` GM state/config keys and corrected icon-based ME/FE credit mapping.
+- Added an authoritative cross-tab Start/Stop control and a 15-second post-submit verification window.
+- Added editable exact-name targets and regression tests for Select, Select-from-Waiting, Join Waiting List and failures.
+
+## 0.1.0 - 2026-07-13
+
+- Initial Chrome/Tampermonkey single-file implementation.
+- Added exact target parsing, dependency-aware decisions and ME/FE coordination.
+- Added guarded Select/Select-from-Waiting/Join-Waiting execution.
+- Added global rate limits, cooldown, heartbeat, reload and panic protections.
+- Added draggable visual panel, config/log export, read-only diagnostic script and fixtures.
+- Added ESLint, Node tests, esbuild bundle and dist safety audit.

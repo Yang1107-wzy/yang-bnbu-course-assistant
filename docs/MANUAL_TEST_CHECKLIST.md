@@ -1,0 +1,34 @@
+# Yang 抢课脚本 v1.0.0 人工验收清单
+
+## 安装与 Test
+
+- [ ] Tampermonkey 只启用一个“Yang 抢课脚本”，版本为 `1.0.0`。
+- [ ] 安装内容来自 `dist/yang-bnbu-course-assistant.user.js`，仅匹配两个 BNBU 选课路径。
+- [ ] 面板显示 STOPPED/SCHEDULED/RUNNING、北京时间、校时、下一窗口、轮询阶段、Test、立即启动、预约启动、Stop 和设置。
+- [ ] `Test` 不触发确认框、不调用选课函数。
+- [ ] 已删除虚构示例并填写真实目标；每个目标的代码、完整名称和班号唯一匹配，页面函数显示 READY。
+
+## 北京时间与预约
+
+- [ ] 校时显示 `BNBU SERVER`；失败时显示本机时钟警告而不是伪造成功。
+- [ ] 三个默认窗口与学校公布时间完全一致，可分别禁用和编辑。
+- [ ] 距下一窗口超过 10 分钟时状态为 SCHEDULED/WAITING，不刷新详情页。
+- [ ] 距开始 10–1 分钟显示 PREHEAT，1 分钟–10 秒显示 ACCELERATE，10 秒内显示 FAST。
+- [ ] 到达窗口边界自动从 SCHEDULED 变成 RUNNING；窗口结束自动暂停并等待下一轮。
+- [ ] 浏览器标签恢复可见后立即重新判定时间窗口。
+
+## 立即启动与动作
+
+- [ ] 点击`立即启动`后无论当前是否在窗口内都立即 RUNNING，并打开/复用 ME、FE worker。
+- [ ] 所有配置目标独立入队，多门同时开放保持 FIFO 且动作相隔至少 1.2 秒。
+- [ ] Select 和 Join Waiting List 均不读取学分或轮候人数；合法入口出现后直接执行。
+- [ ] 预约启动若当前已在窗口内，也会立即执行 READY 的 Select/Join。
+- [ ] 提交后显示 SUBMITTING 并暂停刷新；页面回来后变为 Selected 或 Waiting。
+- [ ] 三门全部 Selected 后自动 STOPPED；Waiting 课程继续等待 `selectItemFromWaiting`。
+
+## Stop 与异常
+
+- [ ] `Stop` 或 `Esc` 取消手动运行和所有预约，所有标签不再刷新或提交。
+- [ ] 登录过期、函数缺失、参数变化、确认框异常或函数抛错会显示 ERROR 并停止。
+- [ ] Clash、重复行、名称/班号不同和未知状态都不动作。
+- [ ] 日志不含 URL query、姓名、学号、Cookie 或 Token。

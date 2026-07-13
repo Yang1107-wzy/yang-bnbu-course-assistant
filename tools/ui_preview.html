@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Yang 抢课脚本 UI Preview</title>
+  <style>
+    body{margin:0;background:#f7fbfc;color:#233;font:15px Arial,sans-serif}header{height:110px;background:linear-gradient(#0d74aa,#6ed9e7);color:white;padding:32px 70px;box-sizing:border-box;font-size:24px;font-weight:700}.page{padding:35px 70px}.profile{padding:15px;background:#fffce8;border-top:1px solid #e7c66c}.course-table{width:100%;border-collapse:collapse;margin-top:28px;background:#effcfd}.course-table th,.course-table td{border:1px solid #9bcbd0;padding:11px;text-align:left}.course-table th{background:#dff5f6}.selected{color:#148414}.hint{margin-top:28px;color:#667}
+  </style>
+</head>
+<body>
+  <header>Yang 抢课脚本 — UI Preview（不连接学校系统）</header>
+  <main class="page">
+    <div class="profile">My Profile　Student ID: [REDACTED]　Programme: Computer Science and Technology</div>
+    <table class="course-table">
+      <tr><th>Course Code</th><th>Course</th><th>Curriculum Type</th><th>Status</th></tr>
+      <tr><td>DEMO1001</td><td>Example Major Elective (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
+      <tr><td>DEMO2001</td><td>Example Technology Course (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
+      <tr><td>DEMO3001</td><td>Example Free Elective (1002)</td><td>FE</td><td>WAITLIST_AVAILABLE</td></tr>
+    </table>
+    <p class="hint">这是本地只读 UI 预览，用于检查面板尺寸、按钮和可读性。</p>
+  </main>
+  <script type="module">
+    import { createDefaultConfig } from "../src/config_manager.js";
+    import { createPanel, PANEL_CSS } from "../src/ui_panel.js";
+    const style = document.createElement("style");
+    style.textContent = PANEL_CSS;
+    document.head.append(style);
+    const config = createDefaultConfig();
+    const panel = createPanel(document, { config, callbacks: {} });
+    panel.update({
+      mode: "SCHEDULED", running: false, error: false,
+      beijingNowText: "2026-07-20 09:59:50",
+      clockSyncText: "BNBU SERVER · +120ms · ±600ms",
+      nextWindowText: "第一轮 · 10 秒",
+      pollPhaseText: "FAST · 1.5–2.5 秒",
+      message: "预览：到点自动运行，也可随时点击立即启动。",
+      courseStatuses: {
+        "DEMO1001:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
+        "DEMO2001:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
+        "DEMO3001:1002": { status: "WAITLIST_AVAILABLE", reason: "可加入轮候 · joinWaiting READY", scannedAt: "14:30:02" }
+      }
+    });
+  </script>
+</body>
+</html>
