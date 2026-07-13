@@ -11,7 +11,7 @@ const requiredMatches = [
 
 for (const match of requiredMatches) assert.ok(source.includes(match), `missing exact match: ${match}`);
 assert.ok(source.includes("// @name         Yang 抢课脚本"), "public script name missing");
-assert.ok(source.includes("// @version      1.1.0"), "dist version must be 1.1.0");
+assert.ok(source.includes("// @version      1.2.0"), "dist version must be 1.2.0");
 assert.ok(source.includes("// @author       Yang1107-wzy"), "public author missing");
 assert.ok(source.includes("// @license      MIT"), "MIT metadata missing");
 assert.ok(source.includes("Yang1107-wzy/yang-bnbu-course-assistant"), "GitHub project metadata missing");
@@ -34,6 +34,8 @@ assert.ok(source.includes("bnbu.courseAssistant.state.v3"), "v3 runtime state ke
 assert.ok(source.includes("bnbu.courseAssistant.config.v3"), "v3 config key missing");
 assert.ok(source.includes("bnbu.courseAssistant.control.v3"), "authoritative v3 control key missing");
 assert.ok(source.includes("bnbu.courseAssistant.panelLayout.v1"), "persistent panel layout key missing");
+assert.ok(source.includes("bnbu.courseAssistant.workerPool.v1"), "bounded worker pool key missing");
+assert.ok(source.includes("yang-worker"), "stable worker URL marker missing");
 assert.ok(
   source.includes("\\u663E\\u793A/\\u5C55\\u5F00 Yang \\u9762\\u677F")
     && source.includes("\\u91CD\\u7F6E Yang \\u9762\\u677F\\u4F4D\\u7F6E"),
@@ -43,7 +45,11 @@ assert.ok(!source.includes("bnbu.courseAssistant.state.v2"), "v2 running state l
 assert.ok(!source.includes("bnbu.courseAssistant.control.v2"), "v2 control state leaked into dist");
 assert.ok(source.includes('method: "HEAD"') && source.includes('credentials: "same-origin"'), "same-origin BNBU clock calibration missing");
 assert.ok(source.includes("2026-07-20T10:00:00") && source.includes("2026-07-22T18:00:00"), "official selection windows missing");
-assert.match(source, /FAST:\s*\[1500,\s*2500\]/, "bounded FAST polling range missing");
+assert.match(source, /NORMAL:\s*\[(?:3000|3e3),\s*(?:3000|3e3)\]/, "three-second normal polling missing");
+assert.match(source, /BURST:\s*\[(?:1000|1e3),\s*(?:1000|1e3)\]/, "one-second burst polling missing");
+assert.ok(source.includes("actionSpacingMs: 250"), "250ms action spacing missing");
+assert.ok(source.includes("maxWorkers: 6"), "six-worker bound missing");
+assert.match(source, /controllerHeartbeatTimeoutMs:\s*(?:60000|6e4)/, "sixty-second worker heartbeat missing");
 assert.ok(!source.includes("dependency-not-occupied"), "old course dependency leaked into dist");
 assert.ok(!source.includes("waitlist-count-exceeds-limit"), "waitlist count gate leaked into dist");
 assert.ok(!source.includes("category-credit-cap-exceeded"), "credit cap gate leaked into dist");

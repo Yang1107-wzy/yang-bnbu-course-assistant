@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本 DOM Diagnostic (Read Only)
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.1.0
+// @version      1.2.0
 // @description  Read-only DOM capture helper for Yang 抢课脚本
 // @match        https://mis.bnbu.edu.cn/mis/student/es/elective.do*
 // @match        https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do*

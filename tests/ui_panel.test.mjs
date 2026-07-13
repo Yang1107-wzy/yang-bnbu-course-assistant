@@ -3,7 +3,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 import { createDefaultConfig } from "../src/config_manager.js";
-import { createPanel } from "../src/ui_panel.js";
+import { createPanel, createWorkerStatusBar } from "../src/ui_panel.js";
 
 const setup = (callbacks = {}, layout = undefined) => {
   const dom = new JSDOM("<!doctype html><body></body>");
@@ -75,7 +75,7 @@ test("shows SCHEDULED/RUNNING state, calibrated Beijing time and next round", ()
     beijingNowText: "2026-07-20 09:59:50",
     clockSyncText: "BNBU SERVER · +120ms · ±600ms",
     nextWindowText: "第一轮 · 10 秒",
-    pollPhaseText: "FAST · 1.5–2.5 秒",
+    pollPhaseText: "BURST · 1 秒",
     message: "等待第一轮",
     courseStatuses: {}
   });
@@ -83,7 +83,7 @@ test("shows SCHEDULED/RUNNING state, calibrated Beijing time and next round", ()
   assert.match(panel.root.textContent, /2026-07-20 09:59:50/);
   assert.match(panel.root.textContent, /BNBU SERVER/);
   assert.match(panel.root.textContent, /第一轮 · 10 秒/);
-  assert.match(panel.root.textContent, /FAST · 1.5–2.5 秒/);
+  assert.match(panel.root.textContent, /BURST · 1 秒/);
 
   panel.update({ mode: "MANUAL", running: true, error: false, courseStatuses: {} });
   assert.match(panel.root.textContent, /RUNNING/);
@@ -109,4 +109,46 @@ test("edits courses and all three selection windows inside one collapsed setting
   assert.equal(saved[0].selectionWindows[0].startText, "2026-07-20T10:00:01");
   assert.equal(saved[0].targets.length, 3);
   assert.equal(dom.window.document.querySelectorAll("#bnbu-course-assistant").length, 1);
+});
+
+test("renders worker assignment and precise target outcome metadata in controller cards", () => {
+  const { panel } = setup();
+  panel.update({
+    mode: "MANUAL",
+    running: true,
+    error: false,
+    courseStatuses: {
+      "AI3133:1001": {
+        status: "WAITING",
+        workerSlotId: "ME-1",
+        reason: "已加入轮候",
+        actionType: "JOIN_WAITLIST",
+        attempts: 1,
+        scannedAt: "10:00:01"
+      }
+    }
+  });
+  const card = panel.root.querySelector('[data-course-key="AI3133:1001"]');
+  assert.match(card.textContent, /已加入轮候/);
+  assert.match(card.textContent, /ME-1/);
+  assert.match(card.textContent, /JOIN_WAITLIST/);
+  assert.match(card.textContent, /10:00:01/);
+});
+
+test("worker pages render only a read-only mini status bar", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const mini = createWorkerStatusBar(dom.window.document, {
+    slot: { slotId: "ME-1", category: "ME", targetIds: ["AI3133:1001"] },
+    targets: createDefaultConfig().targets
+  });
+  mini.update({
+    courseStatuses: {
+      "AI3133:1001": { status: "REGISTERED", reason: "已抢到", scannedAt: "10:00:02" }
+    }
+  });
+  assert.match(mini.root.textContent, /Yang Worker · ME-1/);
+  assert.match(mini.root.textContent, /AI3133 \(1001\)/);
+  assert.match(mini.root.textContent, /已抢到/);
+  assert.equal(mini.root.querySelector("button"), null);
+  assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
 });

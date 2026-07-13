@@ -66,24 +66,19 @@ export const evaluateSchedule = (windows, nowMs) => {
   const activeWindow = enabled.find((window) => nowMs >= window.startAt && nowMs < window.endAt) ?? null;
   const nextWindow = enabled.find((window) => window.startAt > nowMs) ?? null;
   if (activeWindow) {
-    return { phase: "FAST", activeWindow, nextWindow, nextTransitionAt: activeWindow.endAt, complete: false };
+    const phase = nowMs - activeWindow.startAt < 120000 ? "BURST" : "NORMAL";
+    return { phase, activeWindow, nextWindow, nextTransitionAt: activeWindow.endAt, complete: false };
   }
   if (!nextWindow) return { phase: "COMPLETE", activeWindow: null, nextWindow: null, nextTransitionAt: null, complete: true };
   const untilStart = nextWindow.startAt - nowMs;
-  const phase = untilStart <= 10000
-    ? "FAST"
-    : untilStart <= 60000
-      ? "ACCELERATE"
-      : untilStart <= 600000
-        ? "PREHEAT"
-        : "WAITING";
+  const phase = untilStart <= 30000 ? "BURST" : "NORMAL";
   return { phase, activeWindow: null, nextWindow, nextTransitionAt: nextWindow.startAt, complete: false };
 };
 
 export const pollPhaseFor = ({ mode, schedule, submitting }) => {
   if (submitting) return "PAUSED";
-  if (mode === "MANUAL") return "FAST";
-  if (mode === "SCHEDULED") return schedule?.phase ?? "WAITING";
+  if (mode === "MANUAL") return "BURST";
+  if (mode === "SCHEDULED") return schedule?.phase ?? "NORMAL";
   return "STOPPED";
 };
 
@@ -92,15 +87,14 @@ const interpolate = (minimum, maximum, random) => Math.round(minimum + (maximum 
 
 export const randomPollDelayMs = ({ phase, category, random }) => {
   const ranges = {
-    PREHEAT: [15000, 25000],
-    ACCELERATE: [4000, 7000],
-    FAST: [1500, 2500]
+    NORMAL: [3000, 3000],
+    BURST: [1000, 1000]
   };
   const range = ranges[phase];
   if (!range) return null;
   const base = interpolate(range[0], range[1], random);
-  const stagger = category === "FE" ? interpolate(0, 350, random) : 0;
-  return base + stagger;
+  void category;
+  return base;
 };
 
 export const allTargetsRegistered = (targets, statuses) => Array.isArray(targets)

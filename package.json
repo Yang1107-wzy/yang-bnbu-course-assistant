@@ -1,6 +1,6 @@
 {
   "name": "yang-bnbu-course-assistant",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Yang 抢课脚本：BNBU MIS 可视化选课与轮候 Tampermonkey 助手",
   "author": "Yang1107-wzy",

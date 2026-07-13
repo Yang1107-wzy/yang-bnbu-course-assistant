@@ -35,7 +35,7 @@ export const actionSignatureMatches = (queued, evaluation) => {
     && queued.argument === action.argument);
 };
 
-export const claimNextAction = (state, workerId, now = Date.now(), spacingMs = 1200) => {
+export const claimNextAction = (state, workerId, now = Date.now(), spacingMs = 250) => {
   const head = state.actionQueue?.[0] ?? null;
   const lock = state.actionLock;
   if (!head || head.workerId !== workerId) return { claimed: null, state };

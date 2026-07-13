@@ -108,7 +108,7 @@ export const startManualRuntime = (state, now = Date.now()) => ({
   scheduleEnabled: false,
   activeWindowId: null,
   nextTransitionAt: null,
-  pollPhase: "FAST",
+  pollPhase: "BURST",
   nextReloadAt: null,
   lastError: null
 });

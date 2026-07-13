@@ -80,5 +80,9 @@ test("rejects incomplete targets and invalid or overlapping windows", () => {
 });
 
 test("accepts the default v3 configuration", () => {
-  assert.deepEqual(validateConfig(createDefaultConfig()), { valid: true, errors: [] });
+  const config = createDefaultConfig();
+  assert.deepEqual(validateConfig(config), { valid: true, errors: [] });
+  assert.equal(config.actionSpacingMs, 250);
+  assert.equal(config.controllerHeartbeatTimeoutMs, 60000);
+  assert.equal(config.maxWorkers, 6);
 });

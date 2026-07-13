@@ -13,6 +13,7 @@ import {
 } from "../src/assistant_runtime.js";
 import { createDefaultConfig } from "../src/config_manager.js";
 import { parseBeijingDateTime } from "../src/time_scheduler.js";
+import { createWorkerUrl, parseWorkerMarker } from "../src/worker_pool.js";
 
 const createGm = (seed = {}) => {
   const values = new Map(Object.entries(seed));
@@ -72,6 +73,12 @@ const configWithTargets = (...targets) => ({
 const DEMO_MAJOR = { courseCode: "DEMO1001", courseName: "Example Major Elective", section: "1001", category: "ME" };
 const DEMO_TECH = { courseCode: "DEMO2001", courseName: "Example Technology Course", section: "1001", category: "ME" };
 const DEMO_FREE = { courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE" };
+const WORKER_SESSION_KEY = "bnbu.courseAssistant.workerAssignment.v1";
+const detailUrl = (base, slotId, category, targetId) => createWorkerUrl(base, {
+  slotId,
+  category,
+  targetIds: [targetId]
+}, `test-${slotId}`);
 
 test("persists panel layout, restores it after remount and exposes recovery menus", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
@@ -140,7 +147,27 @@ test("initializes fresh v3 runtime while migrating only v2 course configuration"
   assert.equal(gm.values.get(CONTROL_KEY_V3).mode, "STOPPED");
 });
 
-test("manual immediate start runs outside every window and opens ME/FE workers", async () => {
+test("v1.2 migration keeps targets but replaces slow v1.1 tuning and stale workers", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const oldConfig = { ...configWithTargets(DEMO_MAJOR), actionSpacingMs: 1200, controllerHeartbeatTimeoutMs: 15000 };
+  const gm = createGm({
+    [CONFIG_KEY_V3]: oldConfig,
+    [CONTROL_KEY_V3]: { version: 3, mode: "MANUAL", running: true, generation: 7 },
+    "bnbu.courseAssistant.workerPool.v1": { "ME-1": { ownerId: "stale", heartbeatAt: Number.MAX_SAFE_INTEGER } }
+  });
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "controller", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  const migrated = gm.values.get(CONFIG_KEY_V3);
+  assert.equal(migrated.targets[0].courseCode, "DEMO1001");
+  assert.equal(migrated.actionSpacingMs, 250);
+  assert.equal(migrated.maxWorkers, 6);
+  assert.equal(migrated.controllerHeartbeatTimeoutMs, 60000);
+  assert.deepEqual(gm.values.get("bnbu.courseAssistant.workerPool.v1"), {});
+  assert.equal(gm.values.get(CONTROL_KEY_V3).mode, "STOPPED");
+});
+
+test("manual immediate start opens one dedicated worker per target and reuses opening leases", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
   const gm = createGm();
   const now = parseBeijingDateTime("2026-07-13T16:00:00");
@@ -150,14 +177,14 @@ test("manual immediate start runs outside every window and opens ME/FE workers",
   const state = await runtime.getState();
   assert.equal(state.mode, "MANUAL");
   assert.equal(state.running, true);
-  assert.equal(state.pollPhase, "FAST");
-  assert.deepEqual(gm.opened, [
-    "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me-category",
-    "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=fe-category"
-  ]);
+  assert.equal(state.pollPhase, "BURST");
+  assert.equal(gm.opened.length, 3);
+  assert.deepEqual(gm.opened.map((url) => parseWorkerMarker(new URL(url)).slotId), ["ME-1", "ME-2", "FE-1"]);
+  await runtime.startImmediate();
+  assert.equal(gm.opened.length, 3);
 });
 
-test("scheduled start waits without reload work when the next round is more than ten minutes away", async () => {
+test("scheduled start prewarms workers at the normal three-second phase", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
   const gm = createGm();
   const now = parseBeijingDateTime("2026-07-20T09:00:00");
@@ -167,7 +194,7 @@ test("scheduled start waits without reload work when the next round is more than
   const state = await runtime.getState();
   assert.equal(state.mode, "SCHEDULED");
   assert.equal(state.running, false);
-  assert.equal(state.pollPhase, "WAITING");
+  assert.equal(state.pollPhase, "NORMAL");
   assert.equal(state.nextReloadAt, null);
   assert.equal(state.clockSync.source, "BNBU_SERVER");
 });
@@ -185,11 +212,11 @@ test("a schedule tick recovers from sleep and starts exactly inside the active r
   assert.equal(state.mode, "SCHEDULED");
   assert.equal(state.running, true);
   assert.equal(state.activeWindowId, "round-1");
-  assert.equal(state.pollPhase, "FAST");
+  assert.equal(state.pollPhase, "BURST");
 });
 
 test("scheduled start inside an active round immediately executes a ready Select", async () => {
-  const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const dom = await fixture("selectable.html", detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me", "ME-1", "ME", "DEMO1001:1001"));
   const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
   let calls = 0;
   dom.window.selectItem = () => {
@@ -206,7 +233,7 @@ test("scheduled start inside an active round immediately executes a ready Select
 });
 
 test("Test never acts while immediate start calls the ready Select page function", async () => {
-  const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const dom = await fixture("selectable.html", detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me", "ME-1", "ME", "DEMO1001:1001"));
   const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
   let calls = 0;
   dom.window.selectItem = () => {
@@ -223,8 +250,38 @@ test("Test never acts while immediate start calls the ready Select page function
   assert.equal((await runtime.getState()).pendingActions["DEMO1001:1001"].actionType, "SELECT");
 });
 
+test("an unmarked detail tab stays observer-only and never mounts the full controller", async () => {
+  const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
+  let calls = 0;
+  dom.window.selectItem = () => { calls += 1; };
+  const now = parseBeijingDateTime("2026-07-20T10:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "manual-tab", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  await runtime.startImmediate();
+  assert.equal(calls, 0);
+  assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
+  assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /非 Worker/);
+});
+
+test("a worker returning to the overview keeps its session assignment and verifies success", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const markedDetail = detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me", "ME-1", "ME", "DEMO1001:1001");
+  dom.window.sessionStorage.setItem(WORKER_SESSION_KEY, JSON.stringify({
+    marker: parseWorkerMarker(new URL(markedDetail)),
+    detailUrl: markedDetail
+  }));
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
+  const now = parseBeijingDateTime("2026-07-20T10:00:01");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "ME-worker", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
+  assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /ME-1/);
+  assert.equal((await runtime.getState()).courseStatuses["DEMO1001:1001"].status, "REGISTERED");
+});
+
 test("immediate start joins a ready waiting list without queue or credit inspection", async () => {
-  const detail = await fixture("waitlist_available.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=fe");
+  const detail = await fixture("waitlist_available.html", detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=fe", "FE-1", "FE", "DEMO3001:1002"));
   const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_FREE) });
   let calls = 0;
   let detailCalls = 0;
@@ -240,6 +297,24 @@ test("immediate start joins a ready waiting list without queue or credit inspect
   assert.equal(calls, 1);
   assert.equal(detailCalls, 0);
   assert.equal((await runtime.getState()).pendingActions["DEMO3001:1002"].actionType, "JOIN_WAITLIST");
+});
+
+test("a rejected page action remains visibly failed and is not blindly retried", async () => {
+  const dom = await fixture("selectable.html", detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me", "ME-1", "ME", "DEMO1001:1001"));
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
+  let calls = 0;
+  dom.window.selectItem = () => { calls += 1; return false; };
+  const now = parseBeijingDateTime("2026-07-20T10:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "ME-worker", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  await runtime.startImmediate();
+  const failed = (await runtime.getState()).courseStatuses["DEMO1001:1001"];
+  assert.equal(failed.status, "FAILED");
+  assert.equal(failed.attempts, 1);
+  assert.ok(failed.retryAt > now);
+  assert.equal((await runtime.getState()).running, true);
+  await runtime.scan({ allowActions: true });
+  assert.equal(calls, 1);
 });
 
 test("Stop and Escape cancel both manual and scheduled modes", async () => {
@@ -259,7 +334,7 @@ test("Stop and Escape cancel both manual and scheduled modes", async () => {
 });
 
 test("stops automatically when every configured target is registered", async () => {
-  const dom = await fixture("selected.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const dom = await fixture("selected.html", detailUrl("https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me", "ME-1", "ME", "DEMO2001:1001"));
   const config = configWithTargets(DEMO_TECH);
   const gm = createGm({ [CONFIG_KEY_V3]: config });
   const now = parseBeijingDateTime("2026-07-20T10:00:00");

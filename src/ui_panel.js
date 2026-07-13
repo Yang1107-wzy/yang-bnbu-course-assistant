@@ -52,9 +52,78 @@ export const PANEL_CSS = `
 #bnbu-course-assistant[data-running="true"] .ca-state-short{background:#4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state-short{background:#93c5fd}
 #bnbu-course-assistant[data-error="true"] .ca-state-short{background:#ff4d4f}
+#yang-worker-status{position:fixed;right:12px;top:12px;z-index:2147483646;max-width:290px;padding:8px 10px;border-radius:9px;background:rgba(30,30,32,.94);color:#f5f5f5;border:1px solid #58595f;box-shadow:0 5px 18px rgba(0,0,0,.28);font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:none}
+#yang-worker-status .ca-worker-title{font-weight:800;color:#93c5fd;margin-bottom:4px}
+#yang-worker-status .ca-worker-target{margin-top:3px}
+#yang-worker-status .ca-worker-state{color:#ffd666}
+#yang-worker-status[data-complete="true"]{border-color:#4ade80}
+#yang-worker-status[data-error="true"]{border-color:#ff5a5f}
 `;
 
 const targetKey = (target) => target.id ?? `${target.courseCode}:${target.section}`;
+const STATUS_LABELS = Object.freeze({
+  OPENING: "正在打开 Worker",
+  SCANNING: "高速扫描中",
+  NOT_FOUND: "当前页面未找到",
+  UNKNOWN: "暂不可选",
+  TIME_CONFLICT: "时间冲突",
+  SELECTABLE: "可直接选择",
+  WAITLIST_AVAILABLE: "可加入轮候",
+  SUBMITTING: "正在提交",
+  WAITING: "已加入轮候",
+  REGISTERED: "已抢到",
+  FAILED: "执行失败",
+  ERROR: "执行失败",
+  WORKER_OFFLINE: "Worker 失联"
+});
+
+const statusText = (current) => {
+  if (!current) return "未扫描";
+  const pieces = [STATUS_LABELS[current.status] ?? current.status];
+  if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
+  if (current.actionType) pieces.push(current.actionType);
+  if (Number.isFinite(current.attempts) && current.attempts > 0) pieces.push(`尝试 ${current.attempts}`);
+  if (current.reason && current.reason !== STATUS_LABELS[current.status]) pieces.push(current.reason);
+  if (current.scannedAt) pieces.push(current.scannedAt);
+  return pieces.join(" · ");
+};
+
+export const createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false }) => {
+  document.querySelector("#yang-worker-status")?.remove();
+  const root = element(document, "aside");
+  root.id = "yang-worker-status";
+  const title = element(document, "div", "ca-worker-title", observerOnly ? "Yang · 非 Worker，可关闭" : `Yang Worker · ${slot.slotId}`);
+  const targetRefs = new Map();
+  root.append(title);
+  if (!observerOnly) {
+    for (const id of slot.targetIds) {
+      const target = targets.find((item) => targetKey(item) === id);
+      const row = element(document, "div", "ca-worker-target");
+      row.append(element(document, "div", "", target ? `${target.courseCode} (${target.section})` : id));
+      const state = element(document, "div", "ca-worker-state", "正在打开 Worker");
+      row.append(state);
+      root.append(row);
+      targetRefs.set(id, state);
+    }
+  }
+  document.body.append(root);
+  return {
+    root,
+    update(view = {}) {
+      let complete = targetRefs.size > 0;
+      let error = false;
+      for (const [id, ref] of targetRefs) {
+        const current = view.courseStatuses?.[id];
+        ref.textContent = statusText(current);
+        complete &&= current?.status === "REGISTERED";
+        error ||= ["FAILED", "ERROR", "WORKER_OFFLINE"].includes(current?.status);
+      }
+      root.dataset.complete = String(complete);
+      root.dataset.error = String(error);
+    },
+    destroy() { root.remove(); }
+  };
+};
 
 const createTargetEditorRow = (document, editor, target = {}) => {
   const row = element(document, "div", "ca-target-row");
@@ -266,9 +335,7 @@ export const createPanel = (document, { config, callbacks, layout = {} }) => {
       message.textContent = view.message ?? "";
       for (const [key, status] of courseRefs) {
         const current = view.courseStatuses?.[key];
-        status.textContent = current
-          ? `${current.status}${current.reason ? ` — ${current.reason}` : ""}${current.scannedAt ? ` · ${current.scannedAt}` : ""}`
-          : "未找到";
+        status.textContent = statusText(current);
       }
     },
     expand: () => layoutController.expand(),

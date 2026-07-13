@@ -29,13 +29,13 @@ test("allows only the owning worker to claim the FIFO head", () => {
   assert.equal(right.state.actionLock.ownerId, "ME-tab");
 });
 
-test("keeps 1.2 seconds between actions and removes completed work", () => {
+test("keeps 250 milliseconds between actions and removes completed work", () => {
   const queue = enqueueCandidates([], [candidate("DEMO1001"), candidate("DEMO2001")], "ME-tab", 1000);
-  const first = claimNextAction({ actionQueue: queue, actionLock: null, lastActionAt: null }, "ME-tab", 2000, 1200);
+  const first = claimNextAction({ actionQueue: queue, actionLock: null, lastActionAt: null }, "ME-tab", 2000, 250);
   const finished = finishAction(first.state, first.claimed.key, 2000);
   assert.deepEqual(finished.actionQueue.map((item) => item.courseCode), ["DEMO2001"]);
-  assert.equal(claimNextAction(finished, "ME-tab", 2500, 1200).claimed, null);
-  assert.equal(claimNextAction(finished, "ME-tab", 3200, 1200).claimed.courseCode, "DEMO2001");
+  assert.equal(claimNextAction(finished, "ME-tab", 2249, 250).claimed, null);
+  assert.equal(claimNextAction(finished, "ME-tab", 2250, 250).claimed.courseCode, "DEMO2001");
 });
 
 test("rejects a page action whose function or argument changed after it was queued", () => {

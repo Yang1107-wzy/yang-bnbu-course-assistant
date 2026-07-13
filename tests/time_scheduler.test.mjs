@@ -42,34 +42,29 @@ test("rejects disabled-only, invalid, duplicate and overlapping windows", () => 
   ]) .valid, false);
 });
 
-test("evaluates waiting, preheat, accelerate, fast, active and complete boundaries", () => {
+test("uses one-second burst only around the opening and three seconds otherwise", () => {
   const windows = validateSelectionWindows(DEFAULT_SELECTION_WINDOWS).windows;
   const first = windows[0];
-  assert.equal(evaluateSchedule(windows, first.startAt - 600001).phase, "WAITING");
-  assert.equal(evaluateSchedule(windows, first.startAt - 600000).phase, "PREHEAT");
-  assert.equal(evaluateSchedule(windows, first.startAt - 60000).phase, "ACCELERATE");
-  assert.equal(evaluateSchedule(windows, first.startAt - 10000).phase, "FAST");
-  assert.equal(evaluateSchedule(windows, first.startAt).activeWindow.id, "round-1");
+  assert.equal(evaluateSchedule(windows, first.startAt - 30001).phase, "NORMAL");
+  assert.equal(evaluateSchedule(windows, first.startAt - 30000).phase, "BURST");
+  assert.equal(evaluateSchedule(windows, first.startAt).phase, "BURST");
+  assert.equal(evaluateSchedule(windows, first.startAt + 120000).phase, "NORMAL");
   assert.equal(evaluateSchedule(windows, first.endAt).nextWindow.id, "round-2");
   assert.equal(evaluateSchedule(windows, windows.at(-1).endAt).phase, "COMPLETE");
 });
 
 test("derives polling phase for manual, scheduled, stopped and submitting modes", () => {
-  assert.equal(pollPhaseFor({ mode: "MANUAL", schedule: null, submitting: false }), "FAST");
-  assert.equal(pollPhaseFor({ mode: "SCHEDULED", schedule: { phase: "PREHEAT" }, submitting: false }), "PREHEAT");
+  assert.equal(pollPhaseFor({ mode: "MANUAL", schedule: null, submitting: false }), "BURST");
+  assert.equal(pollPhaseFor({ mode: "SCHEDULED", schedule: { phase: "NORMAL" }, submitting: false }), "NORMAL");
   assert.equal(pollPhaseFor({ mode: "STOPPED", schedule: null, submitting: false }), "STOPPED");
   assert.equal(pollPhaseFor({ mode: "MANUAL", schedule: null, submitting: true }), "PAUSED");
 });
 
-test("keeps every randomized delay within its phase and FE stagger bounds", () => {
-  assert.equal(randomPollDelayMs({ phase: "WAITING", category: "ME", random: () => 0.5 }), null);
-  assert.equal(randomPollDelayMs({ phase: "PREHEAT", category: "ME", random: () => 0 }), 15000);
-  assert.equal(randomPollDelayMs({ phase: "PREHEAT", category: "ME", random: () => 1 }), 25000);
-  assert.equal(randomPollDelayMs({ phase: "ACCELERATE", category: "ME", random: () => 0 }), 4000);
-  assert.equal(randomPollDelayMs({ phase: "ACCELERATE", category: "ME", random: () => 1 }), 7000);
-  assert.equal(randomPollDelayMs({ phase: "FAST", category: "ME", random: () => 0 }), 1500);
-  assert.equal(randomPollDelayMs({ phase: "FAST", category: "ME", random: () => 1 }), 2500);
-  assert.equal(randomPollDelayMs({ phase: "FAST", category: "FE", random: () => 1 }), 2850);
+test("returns exact one-second burst and three-second normal delays", () => {
+  assert.equal(randomPollDelayMs({ phase: "STOPPED", category: "ME", random: () => 0.5 }), null);
+  assert.equal(randomPollDelayMs({ phase: "NORMAL", category: "ME", random: () => 0 }), 3000);
+  assert.equal(randomPollDelayMs({ phase: "BURST", category: "ME", random: () => 1 }), 1000);
+  assert.equal(randomPollDelayMs({ phase: "BURST", category: "FE", random: () => 1 }), 1000);
 });
 
 test("recognizes completion only when every target is registered", () => {

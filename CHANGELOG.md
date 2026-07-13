@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 - 2026-07-13
+
+- Added a bounded target-aware Worker pool: the three default courses receive dedicated workers and larger configurations use at most six tabs.
+- Added 30-second opening leases, 60-second heartbeats and stable URL/session markers to prevent duplicate workers.
+- Added one-second burst polling around opening windows, three-second normal polling and immediate refresh freeze once an action appears.
+- Reduced global FIFO action spacing from 1.2 seconds to 250 milliseconds while retaining guarded page-function execution.
+- Added controller target cards and read-only Worker mini bars for opening, scanning, waiting, registered, failure and offline states.
+- Made unmarked or duplicate detail tabs observer-only and added a one-time safe STOPPED migration from v1.1.0.
+
 ## 1.1.0 - 2026-07-13
 
 - Added an isolated panel layout controller with title-bar dragging and bottom-right free resizing.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.1.0
+// @version      1.2.0
 // @description  BNBU MIS 可视化自动选课与轮候助手，支持北京时间预约和即时启动
 // @author       Yang1107-wzy
 // @license      MIT
@@ -52,7 +52,7 @@
     const action = evaluation?.decision?.action === "SELECT" ? evaluation.row?.selectAction : evaluation?.row?.joinWaitingAction;
     return Boolean(action && queued.actionType === evaluation.decision.action && queued.functionName === action.functionName && queued.argument === action.argument);
   };
-  var claimNextAction = (state, workerId, now = Date.now(), spacingMs = 1200) => {
+  var claimNextAction = (state, workerId, now = Date.now(), spacingMs = 250) => {
     const head = state.actionQueue?.[0] ?? null;
     const lock = state.actionLock;
     if (!head || head.workerId !== workerId) return { claimed: null, state };
@@ -360,32 +360,32 @@
     const activeWindow = enabled.find((window2) => nowMs >= window2.startAt && nowMs < window2.endAt) ?? null;
     const nextWindow = enabled.find((window2) => window2.startAt > nowMs) ?? null;
     if (activeWindow) {
-      return { phase: "FAST", activeWindow, nextWindow, nextTransitionAt: activeWindow.endAt, complete: false };
+      const phase2 = nowMs - activeWindow.startAt < 12e4 ? "BURST" : "NORMAL";
+      return { phase: phase2, activeWindow, nextWindow, nextTransitionAt: activeWindow.endAt, complete: false };
     }
     if (!nextWindow) return { phase: "COMPLETE", activeWindow: null, nextWindow: null, nextTransitionAt: null, complete: true };
     const untilStart = nextWindow.startAt - nowMs;
-    const phase = untilStart <= 1e4 ? "FAST" : untilStart <= 6e4 ? "ACCELERATE" : untilStart <= 6e5 ? "PREHEAT" : "WAITING";
+    const phase = untilStart <= 3e4 ? "BURST" : "NORMAL";
     return { phase, activeWindow: null, nextWindow, nextTransitionAt: nextWindow.startAt, complete: false };
   };
   var pollPhaseFor = ({ mode, schedule, submitting }) => {
     if (submitting) return "PAUSED";
-    if (mode === "MANUAL") return "FAST";
-    if (mode === "SCHEDULED") return schedule?.phase ?? "WAITING";
+    if (mode === "MANUAL") return "BURST";
+    if (mode === "SCHEDULED") return schedule?.phase ?? "NORMAL";
     return "STOPPED";
   };
   var boundedRandom = (random) => Math.min(1, Math.max(0, Number(random?.() ?? Math.random())));
   var interpolate = (minimum, maximum, random) => Math.round(minimum + (maximum - minimum) * boundedRandom(random));
   var randomPollDelayMs = ({ phase, category, random }) => {
     const ranges = {
-      PREHEAT: [15e3, 25e3],
-      ACCELERATE: [4e3, 7e3],
-      FAST: [1500, 2500]
+      NORMAL: [3e3, 3e3],
+      BURST: [1e3, 1e3]
     };
     const range = ranges[phase];
     if (!range) return null;
     const base = interpolate(range[0], range[1], random);
-    const stagger = category === "FE" ? interpolate(0, 350, random) : 0;
-    return base + stagger;
+    void category;
+    return base;
   };
   var allTargetsRegistered = (targets, statuses) => Array.isArray(targets) && targets.length > 0 && targets.every((target2) => {
     const key = target2.id ?? `${target2.courseCode}:${target2.section}`;
@@ -416,12 +416,13 @@
   var cloneWindows = (windows) => windows.map(({ id, label, enabled, startText, endText }) => ({ id, label, enabled, startText, endText }));
   var createDefaultConfig = () => ({
     version: 3,
-    actionSpacingMs: 1200,
+    actionSpacingMs: 250,
+    maxWorkers: 6,
     maxActionsPerMinute: 6,
     sameCourseCooldownMs: 8e3,
     maxConsecutiveErrors: 3,
     actionLockTtlMs: 4e3,
-    controllerHeartbeatTimeoutMs: 15e3,
+    controllerHeartbeatTimeoutMs: 6e4,
     clockSyncIntervalMs: 3e5,
     selectionWindows: cloneWindows(DEFAULT_SELECTION_WINDOWS),
     targets: DEFAULT_TARGETS.map((item) => ({ ...item }))
@@ -448,6 +449,7 @@
     return {
       version: 3,
       actionSpacingMs: numeric("actionSpacingMs"),
+      maxWorkers: numeric("maxWorkers"),
       maxActionsPerMinute: numeric("maxActionsPerMinute"),
       sameCourseCooldownMs: numeric("sameCourseCooldownMs"),
       maxConsecutiveErrors: numeric("maxConsecutiveErrors"),
@@ -482,6 +484,7 @@
     const windows = validateSelectionWindows(config.selectionWindows);
     errors.push(...windows.errors);
     if (!Number.isFinite(config.clockSyncIntervalMs) || config.clockSyncIntervalMs < 6e4) errors.push("clock-sync-interval-invalid");
+    if (!Number.isInteger(config.maxWorkers) || config.maxWorkers < 1 || config.maxWorkers > 6) errors.push("max-workers-invalid");
     return { valid: errors.length === 0, errors };
   };
   var saveableConfig = (config) => cleanConfig(config);
@@ -716,28 +719,28 @@
     if (controlled.running) return controlled;
     return { ...controlled, ...executableState(), nextReloadAt: null };
   };
-  var recordPendingAction = (pendingActions, targetId, actionType, submittedAt = Date.now()) => ({
+  var recordPendingAction = (pendingActions, targetId2, actionType, submittedAt = Date.now()) => ({
     ...pendingActions,
-    [targetId]: { actionType, submittedAt, verifyAfter: submittedAt + 15e3 }
+    [targetId2]: { actionType, submittedAt, verifyAfter: submittedAt + 15e3 }
   });
   var reconcilePendingActionsV3 = (pendingActions = {}, observedStatuses = {}, now = Date.now()) => {
     const next = {};
     const blocked = /* @__PURE__ */ new Set();
     const verified = [];
     const failed = [];
-    for (const [targetId, pending] of Object.entries(pendingActions)) {
-      const status = observedStatuses[targetId];
+    for (const [targetId2, pending] of Object.entries(pendingActions)) {
+      const status = observedStatuses[targetId2];
       const success = pending.actionType === "SELECT" ? status === "REGISTERED" : ["WAITING", "REGISTERED"].includes(status);
       if (success) {
-        verified.push({ targetId, actionType: pending.actionType, status });
+        verified.push({ targetId: targetId2, actionType: pending.actionType, status });
         continue;
       }
       if (status === void 0 || now < pending.verifyAfter) {
-        next[targetId] = pending;
-        blocked.add(targetId);
+        next[targetId2] = pending;
+        blocked.add(targetId2);
         continue;
       }
-      failed.push({ targetId, actionType: pending.actionType, status });
+      failed.push({ targetId: targetId2, actionType: pending.actionType, status });
     }
     return { pendingActions: next, blocked, verified, failed };
   };
@@ -751,7 +754,7 @@
     scheduleEnabled: false,
     activeWindowId: null,
     nextTransitionAt: null,
-    pollPhase: "FAST",
+    pollPhase: "BURST",
     nextReloadAt: null,
     lastError: null
   });
@@ -806,15 +809,6 @@
     nextReloadAt: null,
     lastError: error
   });
-  var recordWorker = (state, category, workerId, now = Date.now()) => ({
-    ...state,
-    updatedAt: now,
-    workers: { ...state.workers, [category]: { workerId, at: now } }
-  });
-  var workerIsHealthy = (state, category, now = Date.now(), timeoutMs = 15e3) => {
-    const worker = state.workers?.[category];
-    return Boolean(worker && now - worker.at <= timeoutMs);
-  };
 
   // src/panel_layout.js
   var VIEWPORT_MARGIN = 8;
@@ -1025,8 +1019,77 @@
 #bnbu-course-assistant[data-running="true"] .ca-state-short{background:#4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state-short{background:#93c5fd}
 #bnbu-course-assistant[data-error="true"] .ca-state-short{background:#ff4d4f}
+#yang-worker-status{position:fixed;right:12px;top:12px;z-index:2147483646;max-width:290px;padding:8px 10px;border-radius:9px;background:rgba(30,30,32,.94);color:#f5f5f5;border:1px solid #58595f;box-shadow:0 5px 18px rgba(0,0,0,.28);font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:none}
+#yang-worker-status .ca-worker-title{font-weight:800;color:#93c5fd;margin-bottom:4px}
+#yang-worker-status .ca-worker-target{margin-top:3px}
+#yang-worker-status .ca-worker-state{color:#ffd666}
+#yang-worker-status[data-complete="true"]{border-color:#4ade80}
+#yang-worker-status[data-error="true"]{border-color:#ff5a5f}
 `;
   var targetKey = (target2) => target2.id ?? `${target2.courseCode}:${target2.section}`;
+  var STATUS_LABELS = Object.freeze({
+    OPENING: "\u6B63\u5728\u6253\u5F00 Worker",
+    SCANNING: "\u9AD8\u901F\u626B\u63CF\u4E2D",
+    NOT_FOUND: "\u5F53\u524D\u9875\u9762\u672A\u627E\u5230",
+    UNKNOWN: "\u6682\u4E0D\u53EF\u9009",
+    TIME_CONFLICT: "\u65F6\u95F4\u51B2\u7A81",
+    SELECTABLE: "\u53EF\u76F4\u63A5\u9009\u62E9",
+    WAITLIST_AVAILABLE: "\u53EF\u52A0\u5165\u8F6E\u5019",
+    SUBMITTING: "\u6B63\u5728\u63D0\u4EA4",
+    WAITING: "\u5DF2\u52A0\u5165\u8F6E\u5019",
+    REGISTERED: "\u5DF2\u62A2\u5230",
+    FAILED: "\u6267\u884C\u5931\u8D25",
+    ERROR: "\u6267\u884C\u5931\u8D25",
+    WORKER_OFFLINE: "Worker \u5931\u8054"
+  });
+  var statusText = (current) => {
+    if (!current) return "\u672A\u626B\u63CF";
+    const pieces = [STATUS_LABELS[current.status] ?? current.status];
+    if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
+    if (current.actionType) pieces.push(current.actionType);
+    if (Number.isFinite(current.attempts) && current.attempts > 0) pieces.push(`\u5C1D\u8BD5 ${current.attempts}`);
+    if (current.reason && current.reason !== STATUS_LABELS[current.status]) pieces.push(current.reason);
+    if (current.scannedAt) pieces.push(current.scannedAt);
+    return pieces.join(" \xB7 ");
+  };
+  var createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false }) => {
+    document.querySelector("#yang-worker-status")?.remove();
+    const root = element(document, "aside");
+    root.id = "yang-worker-status";
+    const title = element(document, "div", "ca-worker-title", observerOnly ? "Yang \xB7 \u975E Worker\uFF0C\u53EF\u5173\u95ED" : `Yang Worker \xB7 ${slot.slotId}`);
+    const targetRefs = /* @__PURE__ */ new Map();
+    root.append(title);
+    if (!observerOnly) {
+      for (const id of slot.targetIds) {
+        const target2 = targets.find((item) => targetKey(item) === id);
+        const row = element(document, "div", "ca-worker-target");
+        row.append(element(document, "div", "", target2 ? `${target2.courseCode} (${target2.section})` : id));
+        const state = element(document, "div", "ca-worker-state", "\u6B63\u5728\u6253\u5F00 Worker");
+        row.append(state);
+        root.append(row);
+        targetRefs.set(id, state);
+      }
+    }
+    document.body.append(root);
+    return {
+      root,
+      update(view = {}) {
+        let complete = targetRefs.size > 0;
+        let error = false;
+        for (const [id, ref] of targetRefs) {
+          const current = view.courseStatuses?.[id];
+          ref.textContent = statusText(current);
+          complete &&= current?.status === "REGISTERED";
+          error ||= ["FAILED", "ERROR", "WORKER_OFFLINE"].includes(current?.status);
+        }
+        root.dataset.complete = String(complete);
+        root.dataset.error = String(error);
+      },
+      destroy() {
+        root.remove();
+      }
+    };
+  };
   var createTargetEditorRow = (document, editor, target2 = {}) => {
     const row = element(document, "div", "ca-target-row");
     row.dataset.targetRow = "true";
@@ -1224,7 +1287,7 @@
         message.textContent = view.message ?? "";
         for (const [key, status] of courseRefs) {
           const current = view.courseStatuses?.[key];
-          status.textContent = current ? `${current.status}${current.reason ? ` \u2014 ${current.reason}` : ""}${current.scannedAt ? ` \xB7 ${current.scannedAt}` : ""}` : "\u672A\u627E\u5230";
+          status.textContent = statusText(current);
         }
       },
       expand: () => layoutController.expand(),
@@ -1239,14 +1302,132 @@
     };
   };
 
+  // src/worker_pool.js
+  var targetId = (target2) => target2.id ?? `${target2.courseCode}:${target2.section}`;
+  var CATEGORIES = ["ME", "FE"];
+  var parseHash = (value) => new URL(`https://yang.invalid/?${String(value ?? "").replace(/^#/, "")}`).searchParams;
+  var groupedTargets = (targets) => CATEGORIES.map((category) => ({ category, targets: targets.filter((target2) => target2.category === category) })).filter((group) => group.targets.length > 0);
+  var buildWorkerAssignments = (targets = [], maxWorkers = 6) => {
+    const groups = groupedTargets(targets);
+    const limit = Math.max(1, Math.min(Number(maxWorkers) || 6, targets.length || 1));
+    if (targets.length === 0) return [];
+    const counts = Object.fromEntries(groups.map((group) => [group.category, 1]));
+    let allocated = groups.length;
+    while (allocated < limit) {
+      const candidate = groups.filter((group) => counts[group.category] < group.targets.length).sort((left, right) => right.targets.length / (counts[right.category] + 1) - left.targets.length / (counts[left.category] + 1))[0];
+      if (!candidate) break;
+      counts[candidate.category] += 1;
+      allocated += 1;
+    }
+    return groups.flatMap((group) => {
+      const slots = Array.from({ length: counts[group.category] }, (_, index) => ({
+        slotId: `${group.category}-${index + 1}`,
+        category: group.category,
+        targetIds: []
+      }));
+      group.targets.forEach((target2, index) => slots[index % slots.length].targetIds.push(targetId(target2)));
+      return slots;
+    });
+  };
+  var createWorkerUrl = (baseUrl, slot, openingToken) => {
+    const url = new URL(baseUrl);
+    const hash = parseHash(url.hash);
+    hash.set("yang-worker", slot.slotId);
+    hash.set("yang-category", slot.category);
+    hash.set("yang-targets", slot.targetIds.join(","));
+    hash.set("yang-opening", openingToken);
+    url.hash = hash.toString();
+    return url.href;
+  };
+  var parseWorkerMarker = (location) => {
+    const hash = parseHash(location?.hash);
+    const slotId = hash.get("yang-worker");
+    const category = hash.get("yang-category");
+    const openingToken = hash.get("yang-opening");
+    const targetIds = String(hash.get("yang-targets") ?? "").split(",").filter(Boolean);
+    if (!slotId || !CATEGORIES.includes(category) || !openingToken || targetIds.length === 0) return null;
+    if (!slotId.startsWith(`${category}-`)) return null;
+    return { slotId, category, targetIds, openingToken };
+  };
+  var workerSlotIsHealthy = (registry = {}, slotId, now = Date.now(), heartbeatTtlMs = 6e4) => {
+    const current = registry?.[slotId];
+    return Boolean(current?.ownerId && Number.isFinite(current.heartbeatAt) && now - current.heartbeatAt <= heartbeatTtlMs);
+  };
+  var reserveWorkerOpening = (registry = {}, slot, openingToken, now = Date.now(), openingTtlMs = 3e4, heartbeatTtlMs = 6e4) => {
+    const current = registry?.[slot.slotId];
+    const openingHealthy = current?.phase === "OPENING" && current.openingUntil > now;
+    if (openingHealthy || workerSlotIsHealthy(registry, slot.slotId, now, heartbeatTtlMs)) {
+      return { reserved: false, registry };
+    }
+    return {
+      reserved: true,
+      registry: {
+        ...registry,
+        [slot.slotId]: {
+          slotId: slot.slotId,
+          category: slot.category,
+          targetIds: [...slot.targetIds],
+          phase: "OPENING",
+          openingToken,
+          openingUntil: now + openingTtlMs,
+          ownerId: null,
+          heartbeatAt: null,
+          lastScanAt: current?.lastScanAt ?? null
+        }
+      }
+    };
+  };
+  var claimWorkerSlot = (registry = {}, slot, workerId, openingToken, now = Date.now(), heartbeatTtlMs = 6e4) => {
+    const current = registry?.[slot.slotId];
+    const ownedByAnother = workerSlotIsHealthy(registry, slot.slotId, now, heartbeatTtlMs) && current.ownerId !== workerId;
+    const tokenMismatch = current?.openingToken && current.openingToken !== openingToken && current.ownerId !== workerId;
+    if (ownedByAnother || tokenMismatch) return { claimed: false, registry };
+    return {
+      claimed: true,
+      registry: {
+        ...registry,
+        [slot.slotId]: {
+          slotId: slot.slotId,
+          category: slot.category,
+          targetIds: [...slot.targetIds],
+          phase: "ONLINE",
+          openingToken: null,
+          openingUntil: null,
+          ownerId: workerId,
+          heartbeatAt: now,
+          lastScanAt: current?.lastScanAt ?? null
+        }
+      }
+    };
+  };
+  var heartbeatWorkerSlot = (registry = {}, slotId, workerId, now = Date.now(), lastScanAt) => {
+    const current = registry?.[slotId];
+    if (!current || current.ownerId !== workerId) return { updated: false, registry };
+    return {
+      updated: true,
+      registry: {
+        ...registry,
+        [slotId]: {
+          ...current,
+          phase: "ONLINE",
+          heartbeatAt: now,
+          lastScanAt: lastScanAt ?? current.lastScanAt ?? null
+        }
+      }
+    };
+  };
+
   // src/assistant_runtime.js
   var CONFIG_KEY_V2 = "bnbu.courseAssistant.config.v2";
   var STATE_KEY_V3 = "bnbu.courseAssistant.state.v3";
   var CONFIG_KEY_V3 = "bnbu.courseAssistant.config.v3";
   var CONTROL_KEY_V3 = "bnbu.courseAssistant.control.v3";
   var PANEL_LAYOUT_KEY = "bnbu.courseAssistant.panelLayout.v1";
+  var WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v1";
+  var MIGRATION_KEY_V12 = "bnbu.courseAssistant.migration.v1.2.0";
   var LOG_KEY_V3 = "bnbu.courseAssistant.logs.v3";
   var WORKER_ID_KEY_V3 = "bnbu.courseAssistant.workerId.v3";
+  var WORKER_SESSION_KEY = "bnbu.courseAssistant.workerAssignment.v1";
   var delay = (pageWindow, ms) => new Promise((resolve) => pageWindow.setTimeout(resolve, ms));
   var randomId = (pageWindow) => pageWindow.crypto?.randomUUID?.() ?? `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   var buildStorage = (key, gm2, fallback) => createKeyValueStorage(key, {
@@ -1255,6 +1436,10 @@
     deleteValue: gm2.deleteValue,
     addValueChangeListener: gm2.addValueChangeListener
   }, fallback);
+  var withBrowserLock = (pageWindow, name, operation) => {
+    const locks = pageWindow.navigator?.locks;
+    return typeof locks?.request === "function" ? locks.request(name, { mode: "exclusive" }, operation) : operation();
+  };
   var actionReadiness = (action, pageWindow) => action ? `${action.functionName} ${typeof pageWindow[action.functionName] === "function" ? "READY" : "\u4E0D\u53EF\u7528"}` : "\u5165\u53E3\u4E0D\u53EF\u7528";
   var displayReason = (row, reason, pageWindow) => {
     if (row.status === "SELECTABLE") return `\u53EF\u76F4\u63A5\u9009 \xB7 ${actionReadiness(row.selectAction, pageWindow)}`;
@@ -1262,8 +1447,8 @@
       const label = reason === "test-only" ? "\u53EF\u52A0\u5165\u8F6E\u5019\uFF1B\u542F\u52A8\u540E\u81EA\u52A8\u6267\u884C" : "\u6B63\u5728\u81EA\u52A8\u52A0\u5165\u8F6E\u5019";
       return `${label} \xB7 ${actionReadiness(row.joinWaitingAction, pageWindow)}`;
     }
-    if (row.status === "WAITING") return "\u8F6E\u5019\u4E2D";
-    if (row.status === "REGISTERED") return "\u5DF2\u9009\u4E2D";
+    if (row.status === "WAITING") return "\u5DF2\u52A0\u5165\u8F6E\u5019";
+    if (row.status === "REGISTERED") return "\u5DF2\u62A2\u5230";
     if (row.status === "TIME_CONFLICT") return "\u65F6\u95F4\u51B2\u7A81";
     return reason ?? "\u4E0D\u53EF\u9009";
   };
@@ -1288,10 +1473,8 @@
     return `${remainder}\u79D2`;
   };
   var pollPhaseText = (phase) => ({
-    WAITING: "WAITING \xB7 \u6682\u4E0D\u5237\u65B0",
-    PREHEAT: "PREHEAT \xB7 15\u201325 \u79D2",
-    ACCELERATE: "ACCELERATE \xB7 4\u20137 \u79D2",
-    FAST: "FAST \xB7 1.5\u20132.5 \u79D2",
+    NORMAL: "NORMAL \xB7 3 \u79D2",
+    BURST: "BURST \xB7 1 \u79D2",
     PAUSED: "PAUSED \xB7 \u7B49\u5F85\u63D0\u4EA4\u7ED3\u679C",
     COMPLETE: "COMPLETE",
     STOPPED: "STOPPED"
@@ -1316,6 +1499,8 @@
     const stateStorage = buildStorage(STATE_KEY_V3, gm2, null);
     const controlStorage = buildStorage(CONTROL_KEY_V3, gm2, null);
     const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm2, null);
+    const workerPoolStorage = buildStorage(WORKER_POOL_KEY, gm2, {});
+    const migrationStorage = buildStorage(MIGRATION_KEY_V12, gm2, false);
     const logStorage = buildStorage(LOG_KEY_V3, gm2, []);
     const logger = new AuditLogger(logStorage, 300);
     let panelLayout = await panelLayoutStorage.get();
@@ -1323,10 +1508,25 @@
     const legacyConfig = storedConfig ? null : await legacyConfigStorage.get();
     let config = migrateConfig(storedConfig ?? legacyConfig ?? createDefaultConfig());
     if (!validateConfig(config).valid) config = createDefaultConfig();
+    const firstV12Run = await migrationStorage.get() !== true;
+    if (firstV12Run) {
+      config = {
+        ...config,
+        actionSpacingMs: 250,
+        maxWorkers: 6,
+        controllerHeartbeatTimeoutMs: 6e4
+      };
+      await workerPoolStorage.set({});
+      await migrationStorage.set(true);
+    }
     let state = await stateStorage.get();
     if (state?.version !== 3) state = createRuntimeStateV3(now());
     let control = await controlStorage.get();
     if (control?.version !== 3) {
+      control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
+    }
+    if (firstV12Run) {
+      state = stopRuntime(state, now());
       control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
     }
     state = applyRuntimeControl({ ...state, version: 3, targets: config.targets, selectionWindows: control.selectionWindows }, control);
@@ -1338,12 +1538,36 @@
       workerId = pageWindow.sessionStorage.getItem(WORKER_ID_KEY_V3) ?? randomId(pageWindow);
       pageWindow.sessionStorage.setItem(WORKER_ID_KEY_V3, workerId);
     }
+    const urlWorkerMarker = parseWorkerMarker(pageWindow.location);
+    let savedWorkerAssignment = null;
+    try {
+      savedWorkerAssignment = JSON.parse(pageWindow.sessionStorage.getItem(WORKER_SESSION_KEY) ?? "null");
+    } catch {
+      pageWindow.sessionStorage.removeItem(WORKER_SESSION_KEY);
+    }
+    if (urlWorkerMarker) {
+      savedWorkerAssignment = { marker: urlWorkerMarker, detailUrl: pageWindow.location.href };
+      pageWindow.sessionStorage.setItem(WORKER_SESSION_KEY, JSON.stringify(savedWorkerAssignment));
+    }
+    const workerMarker = urlWorkerMarker ?? savedWorkerAssignment?.marker ?? null;
+    const workerDetailUrl = savedWorkerAssignment?.detailUrl ?? null;
+    const isController = pageType === "OVERVIEW" && !workerMarker;
+    const workerSlot = workerMarker ? {
+      slotId: workerMarker.slotId,
+      category: workerMarker.category,
+      targetIds: workerMarker.targetIds
+    } : null;
+    let workerActive = false;
     let panel = null;
+    let workerPanel = null;
     let scanRunning = false;
     let reloadTimer = null;
     let heartbeatTimer = null;
     let uiTimer = null;
     let layoutSaveTimer = null;
+    let actionAttemptTimer = null;
+    let mutationObserver = null;
+    let returnToDetailTimer = null;
     let message = "\u70B9\u51FB Test \u68C0\u67E5\uFF0C\u6216\u9009\u62E9\u7ACB\u5373/\u9884\u7EA6\u542F\u52A8";
     const readState = async () => {
       state = await stateStorage.get();
@@ -1393,14 +1617,77 @@
       }
     };
     const correctedCurrentTime = (current) => correctedNow(now(), current.clockSync);
+    const workerAssignments = () => buildWorkerAssignments(config.targets, config.maxWorkers);
+    const assignedTargets = () => {
+      if (!workerSlot || !workerActive) return [];
+      const ids = new Set(workerSlot.targetIds);
+      return config.targets.filter((target2) => ids.has(target2.id) && target2.category === workerSlot.category);
+    };
+    const readWorkerPool = async () => await workerPoolStorage.get() ?? {};
+    const writeWorkerPool = async (registry) => {
+      await workerPoolStorage.set(registry);
+      return registry;
+    };
+    const claimCurrentWorkerUnlocked = async () => {
+      if (!workerSlot || !workerMarker) return false;
+      const validAssignment = workerAssignments().find((slot) => slot.slotId === workerSlot.slotId && slot.category === workerSlot.category && slot.targetIds.join(",") === workerSlot.targetIds.join(","));
+      if (!validAssignment) return false;
+      const claim = claimWorkerSlot(
+        await readWorkerPool(),
+        workerSlot,
+        workerId,
+        workerMarker.openingToken,
+        now(),
+        config.controllerHeartbeatTimeoutMs
+      );
+      if (!claim.claimed) return false;
+      await writeWorkerPool(claim.registry);
+      const verified = await readWorkerPool();
+      return verified[workerSlot.slotId]?.ownerId === workerId;
+    };
+    const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", claimCurrentWorkerUnlocked);
+    const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
+      if (!workerActive || !workerSlot) return false;
+      const heartbeat = heartbeatWorkerSlot(await readWorkerPool(), workerSlot.slotId, workerId, now(), lastScanAt);
+      if (!heartbeat.updated) {
+        workerActive = false;
+        clearReload();
+        return false;
+      }
+      await writeWorkerPool(heartbeat.registry);
+      return true;
+    };
+    const heartbeatCurrentWorker = (lastScanAt) => withBrowserLock(
+      pageWindow,
+      "yang-worker-pool-v1",
+      () => heartbeatCurrentWorkerUnlocked(lastScanAt)
+    );
     const updatePanel = async () => {
       const current = await readState();
+      const workerPool = await readWorkerPool();
       const beijingNow = correctedCurrentTime(current);
       const schedule = evaluateSchedule(current.selectionWindows?.length ? current.selectionWindows : config.selectionWindows, beijingNow);
       const sync = current.clockSync;
       const syncText = sync?.source === "BNBU_SERVER" ? `BNBU SERVER \xB7 ${sync.offsetMs >= 0 ? "+" : ""}${sync.offsetMs}ms \xB7 \xB1${sync.uncertaintyMs}ms` : `\u672C\u673A\u65F6\u949F${sync?.error ? ` \xB7 ${sync.error}` : ""}`;
       const nextWindowText = current.mode === "MANUAL" ? "\u624B\u52A8\u5373\u65F6\u8FD0\u884C" : schedule.activeWindow ? `${schedule.activeWindow.label}\u8FDB\u884C\u4E2D \xB7 \u5269\u4F59 ${durationText(schedule.activeWindow.endAt - beijingNow)}` : schedule.nextWindow ? `${schedule.nextWindow.label} \xB7 ${durationText(schedule.nextWindow.startAt - beijingNow)}` : "\u6CA1\u6709\u540E\u7EED\u7A97\u53E3";
-      panel?.update({
+      const courseStatuses = { ...current.courseStatuses };
+      for (const slot of workerAssignments()) {
+        const poolEntry = workerPool[slot.slotId];
+        const healthy = workerSlotIsHealthy(workerPool, slot.slotId, now(), config.controllerHeartbeatTimeoutMs);
+        for (const id of slot.targetIds) {
+          const previous = courseStatuses[id];
+          if (["REGISTERED", "WAITING", "SUBMITTING", "FAILED"].includes(previous?.status)) {
+            courseStatuses[id] = { ...previous, workerSlotId: slot.slotId };
+          } else if (poolEntry?.phase === "OPENING" && poolEntry.openingUntil > now()) {
+            courseStatuses[id] = { ...previous, status: "OPENING", reason: "\u6B63\u5728\u6253\u5F00 Worker", workerSlotId: slot.slotId };
+          } else if (!healthy && current.mode !== "STOPPED") {
+            courseStatuses[id] = { ...previous, status: "WORKER_OFFLINE", reason: "Worker \u5931\u8054\uFF0C\u7B49\u5F85\u6062\u590D", workerSlotId: slot.slotId };
+          } else if (previous) {
+            courseStatuses[id] = { ...previous, workerSlotId: slot.slotId };
+          }
+        }
+      }
+      const view = {
         mode: current.mode,
         running: current.running,
         error: Boolean(current.lastError),
@@ -1409,21 +1696,35 @@
         nextWindowText,
         pollPhaseText: pollPhaseText(current.pollPhase),
         message: current.lastError ?? message,
-        courseStatuses: current.courseStatuses
-      });
+        courseStatuses
+      };
+      panel?.update(view);
+      workerPanel?.update(view);
     };
     const localCategoryFromRows = (rows) => rows.find((row) => ["ME", "FE"].includes(row.category))?.category ?? null;
-    const ensureWorkers = async () => {
-      if (pageType !== "OVERVIEW") return;
-      const current = await readState();
+    const ensureWorkersUnlocked = async () => {
+      if (!isController) return;
       const links = findCategoryDetailLinks(document, pageWindow.location);
-      const categories = new Set(config.targets.map((target2) => target2.category));
-      for (const category of categories) {
-        if (links[category] && !workerIsHealthy(current, category, now(), config.controllerHeartbeatTimeoutMs)) {
-          gm2.openInTab?.(links[category], { active: false, insert: true, setParent: true });
-        }
+      for (const slot of workerAssignments()) {
+        if (!links[slot.category]) continue;
+        const openingToken = randomId(pageWindow);
+        const reservation = reserveWorkerOpening(
+          await readWorkerPool(),
+          slot,
+          openingToken,
+          now(),
+          3e4,
+          config.controllerHeartbeatTimeoutMs
+        );
+        if (!reservation.reserved) continue;
+        await writeWorkerPool(reservation.registry);
+        const verified = await readWorkerPool();
+        if (verified[slot.slotId]?.openingToken !== openingToken) continue;
+        gm2.openInTab?.(createWorkerUrl(links[slot.category], slot, openingToken), { active: false, insert: true, setParent: true });
       }
+      await updatePanel();
     };
+    const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
     const syncClock = async (force = false) => {
       let current = await readState();
       const age = now() - (current.clockSync?.syncedAt ?? 0);
@@ -1435,7 +1736,8 @@
       await updatePanel();
       return clockSync;
     };
-    const executeNext = async (evaluations) => {
+    const executeNextInternal = async (evaluations) => {
+      if (!workerActive) return null;
       let current = await readState();
       if (!current.running) return null;
       const claim = claimNextAction(current, workerId, now(), config.actionSpacingMs);
@@ -1449,34 +1751,69 @@
         await writeState(releaseAction(current, claim.claimed.key));
         return null;
       }
-      const targetId = evaluation.target.id;
+      const targetId2 = evaluation.target.id;
       const prepared = finishAction(current, claim.claimed.key, now());
-      prepared.pendingActions = recordPendingAction(prepared.pendingActions, targetId, evaluation.decision.action, now());
+      prepared.pendingActions = recordPendingAction(prepared.pendingActions, targetId2, evaluation.decision.action, now());
       prepared.courseStatuses = {
         ...prepared.courseStatuses,
-        [targetId]: { status: "SUBMITTING", reason: `\u6B63\u5728\u6267\u884C ${evaluation.decision.action}`, scannedAt: formatBeijingDateTime(correctedCurrentTime(prepared)).slice(11) }
+        [targetId2]: {
+          ...prepared.courseStatuses[targetId2],
+          status: "SUBMITTING",
+          reason: evaluation.decision.action === "JOIN_WAITLIST" ? "\u6B63\u5728\u63D0\u4EA4 Join Waiting" : "\u6B63\u5728\u63D0\u4EA4 Select",
+          actionType: evaluation.decision.action,
+          attempts: (prepared.courseStatuses[targetId2]?.attempts ?? 0) + 1,
+          workerSlotId: workerSlot.slotId,
+          scannedAt: formatBeijingDateTime(correctedCurrentTime(prepared)).slice(11)
+        }
       };
       const committed = await writeState(prepared);
       if (!committed.running) return null;
       const result = executePageAction({ row: evaluation.row, target: evaluation.target, actionType: evaluation.decision.action, pageWindow });
       if (!result.ok) {
-        const error = `${evaluation.target.courseCode}: ${result.reason}`;
-        const failed = stopRuntime(await readState(), now(), error);
+        const failed = await readState();
+        const pendingActions = { ...failed.pendingActions };
+        delete pendingActions[targetId2];
+        failed.pendingActions = pendingActions;
         failed.courseStatuses = {
           ...failed.courseStatuses,
-          [targetId]: { status: "ERROR", reason: result.reason, scannedAt: formatBeijingDateTime(correctedCurrentTime(failed)).slice(11) }
+          [targetId2]: {
+            ...failed.courseStatuses[targetId2],
+            status: "FAILED",
+            reason: result.reason,
+            actionType: evaluation.decision.action,
+            workerSlotId: workerSlot.slotId,
+            retryAt: (failed.courseStatuses[targetId2]?.attempts ?? 1) >= 3 ? null : now() + 3e3,
+            scannedAt: formatBeijingDateTime(correctedCurrentTime(failed)).slice(11)
+          }
         };
-        await publishControlState(failed);
+        await writeState(failed);
         await log({ level: "error", event: "action-rejected", courseCode: evaluation.target.courseCode, action: evaluation.decision.action, reason: result.reason });
-        notify("MIS \u81EA\u52A8\u9009\u8BFE\u5DF2\u505C\u6B62", `${evaluation.target.courseCode}: ${result.reason}`);
+        notify("MIS \u8BFE\u7A0B\u52A8\u4F5C\u5931\u8D25", `${evaluation.target.courseCode}: ${result.reason}`);
+        await updatePanel();
         return result;
       }
       await log({ level: "info", event: "action-submitted", courseCode: evaluation.target.courseCode, action: evaluation.decision.action, reason: result.reason });
       notify("MIS \u5DF2\u63D0\u4EA4\u9009\u8BFE\u52A8\u4F5C", `${evaluation.target.courseCode} ${evaluation.decision.action}`);
       return result;
     };
-    const scan = async ({ allowActions = false } = {}) => {
+    const executeNext = (evaluations) => withBrowserLock(
+      pageWindow,
+      "yang-runtime-state-v1",
+      () => executeNextInternal(evaluations)
+    );
+    const scheduleActionAttempt = (evaluations) => {
+      if (!autoTimers || !workerActive || actionAttemptTimer) return;
+      actionAttemptTimer = pageWindow.setTimeout(async () => {
+        actionAttemptTimer = null;
+        const current = await readState();
+        if (!current.running) return;
+        const result = await executeNext(evaluations);
+        if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(evaluations);
+      }, 50);
+    };
+    const scanInternal = async ({ allowActions = false } = {}) => {
       if (scanRunning) return { skipped: true, reason: "scan-running" };
+      if (!workerActive) return { skipped: true, reason: isController ? "controller-page" : "inactive-worker" };
       scanRunning = true;
       try {
         if (detectSessionExpired(document)) {
@@ -1488,31 +1825,71 @@
         const rows = parseCourseRows(document);
         const category = localCategoryFromRows(rows);
         let current = await readState();
-        if (pageType === "DETAIL" && category) current = recordWorker(current, category, workerId, now());
+        const targets = assignedTargets();
+        if (pageType === "DETAIL" && category && category !== workerSlot.category) {
+          workerActive = false;
+          clearReload();
+          return { stopped: true, reason: "worker-category-mismatch" };
+        }
         const plan = planCourseScan({
-          targets: config.targets,
+          targets,
           rows,
           context: { running: Boolean(current.running && allowActions), courseStatuses: {} }
         });
         const observedStatuses = {};
-        for (const target2 of config.targets) {
+        for (const target2 of targets) {
           const row = findUniqueCourse(rows, target2);
           if (row) observedStatuses[target2.id] = row.status;
           else if (category && target2.category === category) observedStatuses[target2.id] = "NOT_FOUND";
         }
         const pending = reconcilePendingActionsV3(current.pendingActions, observedStatuses, now());
         current.pendingActions = pending.pendingActions;
+        const pendingFailures = new Map(pending.failed.map((failure) => [failure.targetId, failure]));
         const scannedAt = formatBeijingDateTime(correctedCurrentTime(current)).slice(11);
         const statuses = { ...current.courseStatuses };
-        for (const target2 of config.targets) {
+        for (const target2 of targets) {
           const row = findUniqueCourse(rows, target2);
-          if (pending.blocked.has(target2.id)) {
-            statuses[target2.id] = { status: "SUBMITTING", reason: "\u7B49\u5F85\u9875\u9762\u786E\u8BA4\u7ED3\u679C", scannedAt };
+          const previous = statuses[target2.id];
+          const verificationFailure = pendingFailures.get(target2.id);
+          const failureBlocked = previous?.status === "FAILED" && (previous.attempts >= 3 || Number.isFinite(previous.retryAt) && previous.retryAt > now());
+          if (verificationFailure) {
+            const attempts = previous?.attempts ?? 1;
+            statuses[target2.id] = {
+              ...previous,
+              status: "FAILED",
+              reason: "\u63D0\u4EA4\u540E\u672A\u89C2\u5BDF\u5230 Selected/Waiting",
+              actionType: verificationFailure.actionType,
+              retryAt: attempts >= 3 ? null : now() + (attempts === 1 ? 15e3 : 3e4),
+              workerSlotId: workerSlot.slotId,
+              scannedAt
+            };
+          } else if (failureBlocked) {
+            statuses[target2.id] = { ...previous, workerSlotId: workerSlot.slotId, scannedAt };
+          } else if (pending.blocked.has(target2.id)) {
+            statuses[target2.id] = {
+              ...statuses[target2.id],
+              status: "SUBMITTING",
+              reason: "\u7B49\u5F85\u9875\u9762\u786E\u8BA4\u7ED3\u679C",
+              workerSlotId: workerSlot.slotId,
+              scannedAt
+            };
           } else if (row) {
             const evaluation = plan.evaluations.find((item) => item.target.id === target2.id);
-            statuses[target2.id] = { status: row.status, reason: displayReason(row, evaluation?.decision.reason, pageWindow), scannedAt };
+            statuses[target2.id] = {
+              ...statuses[target2.id],
+              status: row.status,
+              reason: displayReason(row, evaluation?.decision.reason, pageWindow),
+              workerSlotId: workerSlot.slotId,
+              scannedAt
+            };
           } else if (category && target2.category === category) {
-            statuses[target2.id] = { status: "NOT_FOUND", reason: "\u5F53\u524D\u9875\u9762\u672A\u627E\u5230", scannedAt };
+            statuses[target2.id] = {
+              ...statuses[target2.id],
+              status: "NOT_FOUND",
+              reason: "\u5F53\u524D\u9875\u9762\u672A\u627E\u5230",
+              workerSlotId: workerSlot.slotId,
+              scannedAt
+            };
           }
         }
         current = { ...current, courseStatuses: statuses, targets: config.targets, lastError: null };
@@ -1523,34 +1900,57 @@
           return plan;
         }
         if (current.running && allowActions) {
-          const candidates = plan.candidates.filter((candidate) => !pending.blocked.has(candidate.target.id));
+          const candidates = plan.candidates.filter((candidate) => {
+            if (pending.blocked.has(candidate.target.id) || pendingFailures.has(candidate.target.id)) return false;
+            const status = statuses[candidate.target.id];
+            return !(status?.status === "FAILED" && (status.attempts >= 3 || Number.isFinite(status.retryAt) && status.retryAt > now()));
+          });
           current.actionQueue = enqueueCandidates(current.actionQueue, candidates, workerId, now());
         }
         await writeState(current);
-        if (current.running && allowActions) await executeNext(plan.evaluations);
+        await heartbeatCurrentWorker(now());
+        if (current.running && allowActions) {
+          const result = await executeNextInternal(plan.evaluations);
+          if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(plan.evaluations);
+        }
         message = `\u5DF2\u626B\u63CF ${rows.length} \u6761\u8BFE\u7A0B\u884C`;
         await log({ level: "info", event: "scan", reason: message });
         await updatePanel();
+        if (autoTimers && pageType === "OVERVIEW" && workerDetailUrl && workerActive) {
+          if (returnToDetailTimer) pageWindow.clearTimeout(returnToDetailTimer);
+          returnToDetailTimer = pageWindow.setTimeout(() => {
+            returnToDetailTimer = null;
+            pageWindow.location.replace(workerDetailUrl);
+          }, 250);
+        }
         return plan;
       } finally {
         scanRunning = false;
       }
     };
+    const scan = (options = {}) => withBrowserLock(
+      pageWindow,
+      "yang-runtime-state-v1",
+      () => scanInternal(options)
+    );
     const clearReload = () => {
       if (reloadTimer) pageWindow.clearTimeout(reloadTimer);
       reloadTimer = null;
     };
     const scheduleReload = async () => {
       clearReload();
-      if (!autoTimers || pageType !== "DETAIL") return null;
+      if (!autoTimers || pageType !== "DETAIL" || !workerActive) return null;
       const current = await readState();
-      const category = localCategoryFromRows(parseCourseRows(document));
+      const targetIds = new Set(assignedTargets().map((target2) => target2.id));
+      const localSubmitting = Object.keys(current.pendingActions ?? {}).some((id) => targetIds.has(id)) || current.actionQueue?.some((item) => item.workerId === workerId);
+      const localComplete = targetIds.size > 0 && [...targetIds].every((id) => current.courseStatuses?.[id]?.status === "REGISTERED");
+      if (localComplete) return null;
       const phase = pollPhaseFor({
         mode: current.mode,
         schedule: { phase: current.pollPhase },
-        submitting: Object.keys(current.pendingActions ?? {}).length > 0
+        submitting: localSubmitting
       });
-      const delayMs = randomPollDelayMs({ phase, category, random: randomSource });
+      const delayMs = randomPollDelayMs({ phase, category: workerSlot.category, random: randomSource });
       if (!Number.isFinite(delayMs)) {
         if (current.nextReloadAt !== null) await writeState({ ...current, nextReloadAt: null, pollPhase: phase });
         return null;
@@ -1558,12 +1958,14 @@
       await writeState({ ...current, nextReloadAt: now() + delayMs, pollPhase: phase });
       reloadTimer = pageWindow.setTimeout(async () => {
         const live = await readState();
+        if (!workerActive) return;
+        const liveSubmitting = Object.keys(live.pendingActions ?? {}).some((id) => targetIds.has(id)) || live.actionQueue?.some((item) => item.workerId === workerId);
         const livePhase = pollPhaseFor({
           mode: live.mode,
           schedule: { phase: live.pollPhase },
-          submitting: Object.keys(live.pendingActions ?? {}).length > 0
+          submitting: liveSubmitting
         });
-        if (randomPollDelayMs({ phase: livePhase, category, random: randomSource }) !== null) pageWindow.location.reload();
+        if (randomPollDelayMs({ phase: livePhase, category: workerSlot.category, random: randomSource }) !== null) pageWindow.location.reload();
       }, delayMs);
       return delayMs;
     };
@@ -1576,14 +1978,14 @@
         const next = applyScheduleTick(current, correctedCurrentTime(current));
         const changed = next.mode !== current.mode || next.running !== current.running || next.pollPhase !== current.pollPhase || next.activeWindowId !== current.activeWindowId || next.nextTransitionAt !== current.nextTransitionAt;
         if (changed) current = await publishControlState(next);
-        if (pageType === "OVERVIEW" && current.mode !== "STOPPED") await ensureWorkers();
+        if (isController && current.mode !== "STOPPED") await ensureWorkers();
         if (!wasRunning && current.running) {
           message = "\u9884\u7EA6\u7A97\u53E3\u5DF2\u5F00\u59CB\uFF0C\u6B63\u5728\u81EA\u52A8\u9009\u8BFE";
           await scan({ allowActions: true });
         }
         await scheduleReload();
       } else if (current.mode === "MANUAL") {
-        if (pageType === "OVERVIEW") await ensureWorkers();
+        if (isController) await ensureWorkers();
         await scheduleReload();
       } else {
         clearReload();
@@ -1655,6 +2057,7 @@
       stopped.selectionWindows = config.selectionWindows;
       stopped.courseStatuses = {};
       await publishControlState(stopped);
+      await writeWorkerPool({});
       mountPanel();
       message = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58\uFF0C\u8BF7\u7ACB\u5373\u542F\u52A8\u6216\u9884\u7EA6\u542F\u52A8";
       await updatePanel();
@@ -1680,6 +2083,7 @@
       void flushPanelLayout();
     };
     const mountPanel = () => {
+      if (!isController) return;
       if (panel) panelLayout = panel.getLayout();
       panel?.destroy();
       panel = createPanel(document, {
@@ -1690,7 +2094,16 @@
     };
     const initialize = async () => {
       gm2.addStyle?.(PANEL_CSS);
-      mountPanel();
+      if (isController) {
+        mountPanel();
+      } else {
+        workerActive = await claimCurrentWorker();
+        workerPanel = createWorkerStatusBar(document, {
+          slot: workerSlot ?? { slotId: "OBSERVER", category: "ME", targetIds: [] },
+          targets: config.targets,
+          observerOnly: !workerActive
+        });
+      }
       pageWindow.addEventListener("pagehide", onPageHide);
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") void stop("Esc \u5DF2\u505C\u6B62");
@@ -1703,7 +2116,7 @@
       controlStorage.listen((next, previous, remote) => {
         if (!next || next.version !== 3) return;
         void updatePanel();
-        if (remote && pageType === "DETAIL" && (next.running || next.mode === "SCHEDULED") && previous?.generation !== next.generation) {
+        if (remote && workerActive && (next.running || next.mode === "SCHEDULED") && previous?.generation !== next.generation) {
           void scan({ allowActions: next.running }).then(scheduleReload);
         }
         if (next.mode === "STOPPED") clearReload();
@@ -1712,12 +2125,25 @@
         if (!remote || !next) return;
         if (panel?.applyLayout(next)) panelLayout = panel.getLayout();
       });
-      gm2.registerMenuCommand?.("MIS Test", () => test());
-      gm2.registerMenuCommand?.("MIS \u7ACB\u5373\u542F\u52A8", () => startImmediate());
-      gm2.registerMenuCommand?.("MIS \u9884\u7EA6\u542F\u52A8", () => startScheduled());
-      gm2.registerMenuCommand?.("MIS Stop", () => stop());
-      gm2.registerMenuCommand?.("\u663E\u793A/\u5C55\u5F00 Yang \u9762\u677F", () => panel?.expand());
-      gm2.registerMenuCommand?.("\u91CD\u7F6E Yang \u9762\u677F\u4F4D\u7F6E", () => panel?.resetLayout());
+      workerPoolStorage.listen((next, _previous, remote) => {
+        if (!remote || !workerSlot || !workerActive) {
+          void updatePanel();
+          return;
+        }
+        if (next?.[workerSlot.slotId]?.ownerId !== workerId) {
+          workerActive = false;
+          clearReload();
+        }
+        void updatePanel();
+      });
+      if (isController) {
+        gm2.registerMenuCommand?.("MIS Test", () => test());
+        gm2.registerMenuCommand?.("MIS \u7ACB\u5373\u542F\u52A8", () => startImmediate());
+        gm2.registerMenuCommand?.("MIS \u9884\u7EA6\u542F\u52A8", () => startScheduled());
+        gm2.registerMenuCommand?.("MIS Stop", () => stop());
+        gm2.registerMenuCommand?.("\u663E\u793A/\u5C55\u5F00 Yang \u9762\u677F", () => panel?.expand());
+        gm2.registerMenuCommand?.("\u91CD\u7F6E Yang \u9762\u677F\u4F4D\u7F6E", () => panel?.resetLayout());
+      }
       await syncClock(false);
       let current = await readState();
       if (current.mode === "SCHEDULED") {
@@ -1729,9 +2155,7 @@
       await scheduleReload();
       if (autoTimers) {
         heartbeatTimer = pageWindow.setInterval(async () => {
-          const rows = parseCourseRows(document);
-          const category = localCategoryFromRows(rows);
-          if (pageType === "DETAIL" && category) await writeState(recordWorker(await readState(), category, workerId, now()));
+          await heartbeatCurrentWorker();
           await tick();
         }, 3e3);
         uiTimer = pageWindow.setInterval(() => {
@@ -1740,6 +2164,18 @@
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "visible") void tick().then(() => scan({ allowActions: state.running }));
         });
+        if (workerActive) {
+          let mutationTimer = null;
+          mutationObserver = new pageWindow.MutationObserver((mutations) => {
+            const external = mutations.some((mutation) => !mutation.target.closest?.("#yang-worker-status, #bnbu-course-assistant"));
+            if (!external || mutationTimer) return;
+            mutationTimer = pageWindow.setTimeout(() => {
+              mutationTimer = null;
+              void scan({ allowActions: state.running }).then(scheduleReload);
+            }, 25);
+          });
+          mutationObserver.observe(document.body, { childList: true, subtree: true });
+        }
       }
       await updatePanel();
       return { pageType, config };
@@ -1759,9 +2195,13 @@
         clearReload();
         if (heartbeatTimer) pageWindow.clearInterval(heartbeatTimer);
         if (uiTimer) pageWindow.clearInterval(uiTimer);
+        if (actionAttemptTimer) pageWindow.clearTimeout(actionAttemptTimer);
+        if (returnToDetailTimer) pageWindow.clearTimeout(returnToDetailTimer);
+        mutationObserver?.disconnect();
         pageWindow.removeEventListener("pagehide", onPageHide);
         void flushPanelLayout();
         panel?.destroy();
+        workerPanel?.destroy();
       }
     };
   };

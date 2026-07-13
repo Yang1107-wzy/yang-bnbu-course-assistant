@@ -39,7 +39,7 @@ test("manual start runs immediately and Stop clears manual or scheduled work", (
   const started = startManualRuntime(dirty, 2000);
   assert.equal(started.mode, "MANUAL");
   assert.equal(started.running, true);
-  assert.equal(started.pollPhase, "FAST");
+  assert.equal(started.pollPhase, "BURST");
   assert.deepEqual(started.actionQueue, []);
   const stopped = stopRuntime({ ...started, actionQueue: [{ key: "new" }], actionLock: { ownerId: "x" } }, 3000);
   assert.equal(stopped.mode, "STOPPED");
@@ -53,12 +53,12 @@ test("scheduled mode waits, runs inside windows, pauses between rounds and stops
   const scheduled = scheduleRuntime(createRuntimeStateV3(1000), windows, windows[0].startAt - 700000);
   assert.equal(scheduled.mode, "SCHEDULED");
   assert.equal(scheduled.running, false);
-  assert.equal(scheduled.pollPhase, "WAITING");
+  assert.equal(scheduled.pollPhase, "NORMAL");
 
   const active = applyScheduleTick(scheduled, windows[0].startAt);
   assert.equal(active.running, true);
   assert.equal(active.activeWindowId, "round-1");
-  assert.equal(active.pollPhase, "FAST");
+  assert.equal(active.pollPhase, "BURST");
 
   const between = applyScheduleTick(active, windows[0].endAt);
   assert.equal(between.mode, "SCHEDULED");
