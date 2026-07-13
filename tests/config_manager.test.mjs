@@ -3,21 +3,38 @@ import test from "node:test";
 
 import { createDefaultConfig, migrateConfig, validateConfig } from "../src/config_manager.js";
 
-test("ships v3 targets and the three editable official windows", () => {
+test("ships the three requested courses and the editable official windows", () => {
   const config = createDefaultConfig();
   assert.equal(config.version, 3);
   assert.equal(config.clockSyncIntervalMs, 300000);
   assert.equal("pollIntervalSeconds" in config, false);
   assert.deepEqual(config.targets.map(({ id, courseCode, section, category }) => ({ id, courseCode, section, category })), [
-    { id: "DEMO1001:1001", courseCode: "DEMO1001", section: "1001", category: "ME" },
-    { id: "DEMO2001:1001", courseCode: "DEMO2001", section: "1001", category: "ME" },
-    { id: "DEMO3001:1002", courseCode: "DEMO3001", section: "1002", category: "FE" }
+    { id: "AI3133:1001", courseCode: "AI3133", section: "1001", category: "ME" },
+    { id: "COMP4213:1001", courseCode: "COMP4213", section: "1001", category: "ME" },
+    { id: "EBIS3113:1002", courseCode: "EBIS3113", section: "1002", category: "FE" }
   ]);
   assert.deepEqual(config.selectionWindows.map(({ id, enabled }) => ({ id, enabled })), [
     { id: "round-1", enabled: true },
     { id: "round-2", enabled: true },
     { id: "round-3", enabled: true }
   ]);
+});
+
+test("replaces only the untouched public DEMO targets during migration", () => {
+  const demo = {
+    ...createDefaultConfig(),
+    targets: [
+      { courseCode: "DEMO1001", courseName: "Example Major Elective", section: "1001", category: "ME" },
+      { courseCode: "DEMO2001", courseName: "Example Technology Course", section: "1001", category: "ME" },
+      { courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE" }
+    ]
+  };
+  assert.deepEqual(migrateConfig(demo).targets.map((item) => item.courseCode), ["AI3133", "COMP4213", "EBIS3113"]);
+
+  const customized = { ...demo, targets: demo.targets.map((item) => ({ ...item })) };
+  customized.targets[0].courseCode = "USER1001";
+  customized.targets[0].courseName = "User Course";
+  assert.deepEqual(migrateConfig(customized).targets.map((item) => item.courseCode), ["USER1001", "DEMO2001", "DEMO3001"]);
 });
 
 test("migrates v2 targets while dropping obsolete runtime limits", () => {

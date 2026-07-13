@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本 DOM Diagnostic (Read Only)
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.0.0
+// @version      1.1.0
 // @description  Read-only DOM capture helper for Yang 抢课脚本
 // @match        https://mis.bnbu.edu.cn/mis/student/es/elective.do*
 // @match        https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do*
@@ -11,7 +11,7 @@
 
 (() => {
   "use strict";
-  const targets = [["DEMO1001", "1001"], ["DEMO2001", "1001"], ["DEMO3001", "1002"]];
+  const targets = [["AI3133", "1001"], ["COMP4213", "1001"], ["EBIS3113", "1002"]];
   const safeText = (value) => String(value ?? "")
     .replace(/\b\d{9,12}\b/g, "[REDACTED_ID]")
     .replace(/(student\s*id|name)\s*:\s*[^|\n]+/gi, "$1:[REDACTED]")

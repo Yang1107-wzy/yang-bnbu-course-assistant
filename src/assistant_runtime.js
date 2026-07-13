@@ -33,6 +33,7 @@ export const CONFIG_KEY_V2 = "bnbu.courseAssistant.config.v2";
 export const STATE_KEY_V3 = "bnbu.courseAssistant.state.v3";
 export const CONFIG_KEY_V3 = "bnbu.courseAssistant.config.v3";
 export const CONTROL_KEY_V3 = "bnbu.courseAssistant.control.v3";
+export const PANEL_LAYOUT_KEY = "bnbu.courseAssistant.panelLayout.v1";
 const LOG_KEY_V3 = "bnbu.courseAssistant.logs.v3";
 const WORKER_ID_KEY_V3 = "bnbu.courseAssistant.workerId.v3";
 
@@ -112,8 +113,10 @@ export const createAssistantRuntime = async ({
   const legacyConfigStorage = buildStorage(CONFIG_KEY_V2, gm, null);
   const stateStorage = buildStorage(STATE_KEY_V3, gm, null);
   const controlStorage = buildStorage(CONTROL_KEY_V3, gm, null);
+  const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm, null);
   const logStorage = buildStorage(LOG_KEY_V3, gm, []);
   const logger = new AuditLogger(logStorage, 300);
+  let panelLayout = await panelLayoutStorage.get();
 
   const storedConfig = await configStorage.get();
   const legacyConfig = storedConfig ? null : await legacyConfigStorage.get();
@@ -142,6 +145,7 @@ export const createAssistantRuntime = async ({
   let reloadTimer = null;
   let heartbeatTimer = null;
   let uiTimer = null;
+  let layoutSaveTimer = null;
   let message = "点击 Test 检查，或选择立即/预约启动";
 
   const readState = async () => {
@@ -493,17 +497,40 @@ export const createAssistantRuntime = async ({
     return true;
   };
 
+  const savePanelLayout = (nextLayout) => {
+    panelLayout = nextLayout;
+    if (layoutSaveTimer) pageWindow.clearTimeout(layoutSaveTimer);
+    layoutSaveTimer = pageWindow.setTimeout(() => {
+      layoutSaveTimer = null;
+      void panelLayoutStorage.set(panelLayout);
+    }, 150);
+  };
+
+  const flushPanelLayout = async () => {
+    if (!panelLayout) return;
+    if (layoutSaveTimer) {
+      pageWindow.clearTimeout(layoutSaveTimer);
+      layoutSaveTimer = null;
+    }
+    await panelLayoutStorage.set(panelLayout);
+  };
+
+  const onPageHide = () => { void flushPanelLayout(); };
+
   const mountPanel = () => {
+    if (panel) panelLayout = panel.getLayout();
     panel?.destroy();
     panel = createPanel(document, {
       config,
-      callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig }
+      callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig },
+      layout: { initial: panelLayout, onChange: savePanelLayout }
     });
   };
 
   const initialize = async () => {
     gm.addStyle?.(PANEL_CSS);
     mountPanel();
+    pageWindow.addEventListener("pagehide", onPageHide);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") void stop("Esc 已停止");
     });
@@ -520,10 +547,16 @@ export const createAssistantRuntime = async ({
       }
       if (next.mode === "STOPPED") clearReload();
     });
+    panelLayoutStorage.listen((next, _previous, remote) => {
+      if (!remote || !next) return;
+      if (panel?.applyLayout(next)) panelLayout = panel.getLayout();
+    });
     gm.registerMenuCommand?.("MIS Test", () => test());
     gm.registerMenuCommand?.("MIS 立即启动", () => startImmediate());
     gm.registerMenuCommand?.("MIS 预约启动", () => startScheduled());
     gm.registerMenuCommand?.("MIS Stop", () => stop());
+    gm.registerMenuCommand?.("显示/展开 Yang 面板", () => panel?.expand());
+    gm.registerMenuCommand?.("重置 Yang 面板位置", () => panel?.resetLayout());
 
     await syncClock(false);
     let current = await readState();
@@ -566,6 +599,8 @@ export const createAssistantRuntime = async ({
       clearReload();
       if (heartbeatTimer) pageWindow.clearInterval(heartbeatTimer);
       if (uiTimer) pageWindow.clearInterval(uiTimer);
+      pageWindow.removeEventListener("pagehide", onPageHide);
+      void flushPanelLayout();
       panel?.destroy();
     }
   };

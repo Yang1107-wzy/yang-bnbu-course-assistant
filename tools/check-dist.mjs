@@ -11,15 +11,15 @@ const requiredMatches = [
 
 for (const match of requiredMatches) assert.ok(source.includes(match), `missing exact match: ${match}`);
 assert.ok(source.includes("// @name         Yang 抢课脚本"), "public script name missing");
-assert.ok(source.includes("// @version      1.0.0"), "dist version must be 1.0.0");
+assert.ok(source.includes("// @version      1.1.0"), "dist version must be 1.1.0");
 assert.ok(source.includes("// @author       Yang1107-wzy"), "public author missing");
 assert.ok(source.includes("// @license      MIT"), "MIT metadata missing");
 assert.ok(source.includes("Yang1107-wzy/yang-bnbu-course-assistant"), "GitHub project metadata missing");
 assert.equal((source.match(/^\/\/ @match/gm) ?? []).length, 2, "dist must contain exactly two approved @match rules");
 const retiredHostname = ["mis", "uic", "edu", "cn"].join(".");
 assert.ok(!source.includes(retiredHostname), "retired MIS hostname leaked into dist");
-for (const demoTarget of ["DEMO1001", "DEMO2001", "DEMO3001"]) {
-  assert.ok(source.includes(demoTarget), `public demo target missing: ${demoTarget}`);
+for (const target of ["AI3133", "COMP4213", "EBIS3113"]) {
+  assert.ok(source.includes(target), `configured default target missing: ${target}`);
 }
 assert.ok(source.includes("// @grant        unsafeWindow"), "unsafeWindow grant is required for guarded native confirm");
 assert.ok(!source.includes("GM_xmlhttpRequest"), "network-bypass grant/API is forbidden");
@@ -33,6 +33,12 @@ assert.ok(source.includes("Reflect.apply(pageFunction, pageWindow, [action.argum
 assert.ok(source.includes("bnbu.courseAssistant.state.v3"), "v3 runtime state key missing");
 assert.ok(source.includes("bnbu.courseAssistant.config.v3"), "v3 config key missing");
 assert.ok(source.includes("bnbu.courseAssistant.control.v3"), "authoritative v3 control key missing");
+assert.ok(source.includes("bnbu.courseAssistant.panelLayout.v1"), "persistent panel layout key missing");
+assert.ok(
+  source.includes("\\u663E\\u793A/\\u5C55\\u5F00 Yang \\u9762\\u677F")
+    && source.includes("\\u91CD\\u7F6E Yang \\u9762\\u677F\\u4F4D\\u7F6E"),
+  "panel recovery menus missing"
+);
 assert.ok(!source.includes("bnbu.courseAssistant.state.v2"), "v2 running state leaked into dist");
 assert.ok(!source.includes("bnbu.courseAssistant.control.v2"), "v2 control state leaked into dist");
 assert.ok(source.includes('method: "HEAD"') && source.includes('credentials: "same-origin"'), "same-origin BNBU clock calibration missing");

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0 - 2026-07-13
+
+- Added an isolated panel layout controller with title-bar dragging and bottom-right free resizing.
+- Added a compact draggable `Yang` collapsed state, viewport recovery and persistent cross-page layout.
+- Added Tampermonkey menu commands to show or reset the panel.
+- Prefilled AI3133 (1001), COMP4213 (1001) and EBIS3113 (1002), while migrating only untouched legacy DEMO defaults.
+- Kept automatic Select, Select from Waiting and Join Waiting List behavior unchanged.
+
 ## 1.0.0 - 2026-07-13
 
 - Published the project as **Yang 抢课脚本** under the MIT License.

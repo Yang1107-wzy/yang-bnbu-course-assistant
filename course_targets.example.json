@@ -6,8 +6,8 @@
     { "id": "round-3", "label": "第三轮", "enabled": true, "startText": "2026-07-21T10:00:00", "endText": "2026-07-22T18:00:00" }
   ],
   "targets": [
-    { "courseCode": "DEMO1001", "courseName": "Example Major Elective", "section": "1001", "category": "ME" },
-    { "courseCode": "DEMO2001", "courseName": "Example Technology Course", "section": "1001", "category": "ME" },
-    { "courseCode": "DEMO3001", "courseName": "Example Free Elective", "section": "1002", "category": "FE" }
+    { "courseCode": "AI3133", "courseName": "Natural Language Processing", "section": "1001", "category": "ME" },
+    { "courseCode": "COMP4213", "courseName": "Wireless Communication and Mobile Computing", "section": "1001", "category": "ME" },
+    { "courseCode": "EBIS3113", "courseName": "Business Forecasting and Machine Learning", "section": "1002", "category": "FE" }
   ]
 }

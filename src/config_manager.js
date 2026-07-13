@@ -10,10 +10,16 @@ const target = (courseCode, courseName, section, category) => ({
   allowJoinWaitingList: true
 });
 
-const DEFAULT_TARGETS = [
+const LEGACY_DEMO_TARGETS = [
   target("DEMO1001", "Example Major Elective", "1001", "ME"),
   target("DEMO2001", "Example Technology Course", "1001", "ME"),
   target("DEMO3001", "Example Free Elective", "1002", "FE")
+];
+
+const DEFAULT_TARGETS = [
+  target("AI3133", "Natural Language Processing", "1001", "ME"),
+  target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
+  target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
 ];
 
 const cloneWindows = (windows) => windows.map(({ id, label, enabled, startText, endText }) => ({ id, label, enabled, startText, endText }));
@@ -66,7 +72,20 @@ const cleanConfig = (input) => {
   };
 };
 
-export const migrateConfig = (input) => cleanConfig(input);
+const sameTargets = (left, right) => Array.isArray(left)
+  && left.length === right.length
+  && left.every((item, index) => {
+    const normalized = normalizeTarget(item);
+    const expected = normalizeTarget(right[index]);
+    return normalized.courseCode === expected.courseCode
+      && normalized.courseName === expected.courseName
+      && normalized.section === expected.section
+      && normalized.category === expected.category;
+  });
+
+export const migrateConfig = (input) => cleanConfig(sameTargets(input?.targets, LEGACY_DEMO_TARGETS)
+  ? { ...input, targets: DEFAULT_TARGETS }
+  : input);
 
 export const validateConfig = (config) => {
   const errors = [];

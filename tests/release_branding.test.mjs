@@ -9,10 +9,13 @@ import { createPanel } from "../src/ui_panel.js";
 
 const repoFile = (path) => new URL(`../${path}`, import.meta.url);
 
-test("ships only non-matching DEMO targets in the public default config", () => {
+test("ships the three requested courses in the public default config", () => {
   const config = createDefaultConfig();
-  assert.deepEqual(config.targets.map((target) => target.courseCode), ["DEMO1001", "DEMO2001", "DEMO3001"]);
-  assert.ok(config.targets.every((target) => target.courseName.startsWith("Example ")));
+  assert.deepEqual(config.targets.map((target) => `${target.courseCode}:${target.section}:${target.category}`), [
+    "AI3133:1001:ME",
+    "COMP4213:1001:ME",
+    "EBIS3113:1002:FE"
+  ]);
 });
 
 test("renders the Yang brand and course-selection blessing", () => {
@@ -23,10 +26,10 @@ test("renders the Yang brand and course-selection blessing", () => {
   assert.doesNotMatch(panel.root.textContent, /MIS 自动选课助手 v3/);
 });
 
-test("build contract publishes the branded v1 userscript filename and metadata", async () => {
+test("build contract publishes the branded v1.1 userscript filename and metadata", async () => {
   const source = await readFile(repoFile("build.mjs"), "utf8");
   assert.match(source, /@name\s+Yang 抢课脚本/);
-  assert.match(source, /@version\s+1\.0\.0/);
+  assert.match(source, /@version\s+1\.1\.0/);
   assert.match(source, /@author\s+Yang1107-wzy/);
   assert.match(source, /@license\s+MIT/);
   assert.match(source, /dist\/yang-bnbu-course-assistant\.user\.js/);

@@ -12,11 +12,15 @@ const names = {
   DEMO2001: "Example Technology Course (1001)"
 };
 const row = (courseCode, status) => ({ courseCode, courseName: names[courseCode], section: "1001", status });
+const demoTargets = () => [
+  { id: "DEMO1001:1001", courseCode: "DEMO1001", courseName: "Example Major Elective", section: "1001", category: "ME", allowDirectSelect: true, allowJoinWaitingList: true },
+  { id: "DEMO2001:1001", courseCode: "DEMO2001", courseName: "Example Technology Course", section: "1001", category: "ME", allowDirectSelect: true, allowJoinWaitingList: true },
+  { id: "DEMO3001:1002", courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE", allowDirectSelect: true, allowJoinWaitingList: true }
+];
 
 test("plans two demo targets independently when both are selectable", () => {
-  const config = createDefaultConfig();
   const result = planCourseScan({
-    targets: config.targets,
+    targets: demoTargets().slice(0, 2),
     rows: [row("DEMO1001", CourseStatus.SELECTABLE), row("DEMO2001", CourseStatus.SELECTABLE)],
     context: {
       running: true,
@@ -29,9 +33,8 @@ test("plans two demo targets independently when both are selectable", () => {
 });
 
 test("keeps one demo selectable while another demo is waiting", () => {
-  const config = createDefaultConfig();
   const result = planCourseScan({
-    targets: config.targets,
+    targets: demoTargets().slice(0, 2),
     rows: [row("DEMO1001", CourseStatus.WAITING), row("DEMO2001", CourseStatus.SELECTABLE)],
     context: {
       running: true,
@@ -48,7 +51,7 @@ test("returns every independently selectable target as a candidate", async () =>
   const html = await readFile(new URL("./fixtures/multi_selectable.html", import.meta.url), "utf8");
   const dom = new JSDOM(html);
   const rows = parseCourseRows(dom.window.document);
-  const targets = createDefaultConfig().targets;
+  const targets = demoTargets();
   const result = planCourseScan({
     targets,
     rows,

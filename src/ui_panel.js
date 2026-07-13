@@ -1,3 +1,5 @@
+import { createPanelLayoutController } from "./panel_layout.js";
+
 const element = (document, tag, className = "", text = undefined) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -6,11 +8,15 @@ const element = (document, tag, className = "", text = undefined) => {
 };
 
 export const PANEL_CSS = `
-#bnbu-course-assistant{position:fixed;right:18px;bottom:18px;width:380px;max-height:82vh;overflow:auto;z-index:2147483647;background:rgba(30,30,32,.97);color:#f5f5f5;border:1px solid #58595f;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.38);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#bnbu-course-assistant{position:fixed;right:18px;bottom:18px;width:380px;height:min(520px,calc(100vh - 36px));display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;z-index:2147483647;background:rgba(30,30,32,.97);color:#f5f5f5;border:1px solid #58595f;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.38);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 #bnbu-course-assistant[data-running="true"]{border:2px solid #4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"]{border:2px solid #60a5fa}
 #bnbu-course-assistant[data-error="true"]{border:2px solid #ff4d4f}
-#bnbu-course-assistant .ca-head{display:flex;justify-content:space-between;align-items:center;padding:11px 13px;border-bottom:1px solid #4a4b50;font-weight:750}
+#bnbu-course-assistant .ca-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none;padding:11px 13px;border-bottom:1px solid #4a4b50;font-weight:750;cursor:move;touch-action:none}
+#bnbu-course-assistant .ca-head-controls{display:flex;align-items:center;gap:7px}
+#bnbu-course-assistant .ca-title-short,#bnbu-course-assistant .ca-state-short,#bnbu-course-assistant .ca-expand{display:none}
+#bnbu-course-assistant .ca-head button{padding:2px 7px;border-radius:6px;font-size:14px;line-height:20px}
+#bnbu-course-assistant .ca-body{flex:1;min-height:0;overflow:auto}
 #bnbu-course-assistant .ca-state{font-weight:800;color:#ffcc66}
 #bnbu-course-assistant[data-running="true"] .ca-state{color:#4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state{color:#93c5fd}
@@ -37,6 +43,15 @@ export const PANEL_CSS = `
 #bnbu-course-assistant .ca-target-row input,#bnbu-course-assistant .ca-target-row select,#bnbu-course-assistant .ca-window-row input{width:100%;min-width:0}
 #bnbu-course-assistant .ca-target-row button{padding:4px;background:#6a3032;color:white}
 #bnbu-course-assistant .ca-editor-actions{display:flex;gap:7px;margin-top:8px}
+#bnbu-course-assistant .ca-resize{position:absolute;right:2px;bottom:2px;width:18px;height:18px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 0 45%,#a8a8ad 46% 54%,transparent 55% 65%,#a8a8ad 66% 74%,transparent 75%);opacity:.8}
+#bnbu-course-assistant[data-collapsed="true"]{border-radius:22px}
+#bnbu-course-assistant[data-collapsed="true"] .ca-body,#bnbu-course-assistant[data-collapsed="true"] .ca-resize,#bnbu-course-assistant[data-collapsed="true"] .ca-title-full,#bnbu-course-assistant[data-collapsed="true"] .ca-state,#bnbu-course-assistant[data-collapsed="true"] .ca-collapse{display:none}
+#bnbu-course-assistant[data-collapsed="true"] .ca-title-short,#bnbu-course-assistant[data-collapsed="true"] .ca-state-short,#bnbu-course-assistant[data-collapsed="true"] .ca-expand{display:inline-flex}
+#bnbu-course-assistant[data-collapsed="true"] .ca-head{height:100%;box-sizing:border-box;padding:7px 9px;border:0}
+#bnbu-course-assistant .ca-state-short{width:9px;height:9px;border-radius:50%;background:#ffcc66}
+#bnbu-course-assistant[data-running="true"] .ca-state-short{background:#4ade80}
+#bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state-short{background:#93c5fd}
+#bnbu-course-assistant[data-error="true"] .ca-state-short{background:#ff4d4f}
 `;
 
 const targetKey = (target) => target.id ?? `${target.courseCode}:${target.section}`;
@@ -116,7 +131,7 @@ const timeRow = (document, label, field) => {
   return { row, value };
 };
 
-export const createPanel = (document, { config, callbacks }) => {
+export const createPanel = (document, { config, callbacks, layout = {} }) => {
   document.querySelector("#bnbu-course-assistant")?.remove();
   const root = element(document, "section");
   root.id = "bnbu-course-assistant";
@@ -125,10 +140,29 @@ export const createPanel = (document, { config, callbacks }) => {
   root.dataset.error = "false";
 
   const head = element(document, "div", "ca-head");
-  head.append(element(document, "span", "", "Yang 抢课脚本"));
+  const titles = element(document, "div", "ca-head-title");
+  titles.append(
+    element(document, "span", "ca-title-full", "Yang 抢课脚本"),
+    element(document, "span", "ca-title-short", "Yang")
+  );
   const stateLabel = element(document, "span", "ca-state", "STOPPED");
-  head.append(stateLabel);
+  const stateShort = element(document, "span", "ca-state-short");
+  stateShort.title = "STOPPED";
+  const collapse = element(document, "button", "ca-collapse", "—");
+  collapse.type = "button";
+  collapse.title = "收起面板";
+  collapse.dataset.panelAction = "collapse";
+  const expand = element(document, "button", "ca-expand", "↗");
+  expand.type = "button";
+  expand.title = "展开面板";
+  expand.dataset.panelAction = "expand";
+  const headControls = element(document, "div", "ca-head-controls");
+  headControls.append(stateLabel, stateShort, collapse, expand);
+  head.append(titles, headControls);
   root.append(head);
+
+  const body = element(document, "div", "ca-body");
+  body.dataset.panelBody = "true";
 
   const time = element(document, "div", "ca-time");
   const beijingClock = timeRow(document, "北京时间", "beijing-clock");
@@ -136,7 +170,7 @@ export const createPanel = (document, { config, callbacks }) => {
   const nextWindow = timeRow(document, "下一窗口", "next-window");
   const pollPhase = timeRow(document, "轮询", "poll-phase");
   time.append(beijingClock.row, clockSync.row, nextWindow.row, pollPhase.row);
-  root.append(time);
+  body.append(time);
 
   const actions = element(document, "div", "ca-actions");
   for (const [action, label] of [
@@ -151,7 +185,7 @@ export const createPanel = (document, { config, callbacks }) => {
     button.dataset.action = action;
     actions.append(button);
   }
-  root.append(actions);
+  body.append(actions);
 
   const courses = element(document, "div", "ca-courses");
   const courseRefs = new Map();
@@ -165,7 +199,7 @@ export const createPanel = (document, { config, callbacks }) => {
     courses.append(card);
     courseRefs.set(key, status);
   }
-  root.append(courses);
+  body.append(courses);
 
   const editor = element(document, "div", "ca-editor");
   editor.dataset.settingsEditor = "true";
@@ -189,17 +223,32 @@ export const createPanel = (document, { config, callbacks }) => {
   const editorActions = element(document, "div", "ca-editor-actions");
   editorActions.append(save);
   editor.append(editorActions);
-  root.append(editor);
+  body.append(editor);
 
   const message = element(document, "div", "ca-message", "点击 Test 检查，或选择立即/预约启动");
-  root.append(message, element(document, "div", "ca-blessing", "祝您抢到心仪课程"));
+  body.append(message, element(document, "div", "ca-blessing", "祝您抢到心仪课程"));
+  const resizeHandle = element(document, "div", "ca-resize");
+  resizeHandle.dataset.resizeHandle = "true";
+  resizeHandle.title = "拖动调整面板大小";
+  root.append(body, resizeHandle);
   document.body.append(root);
+
+  const layoutController = createPanelLayoutController({
+    pageWindow: document.defaultView,
+    root,
+    dragHandle: head,
+    resizeHandle,
+    initialLayout: layout.initial,
+    onLayoutChange: layout.onChange
+  });
 
   root.querySelector('[data-action="test"]').addEventListener("click", () => callbacks.test?.());
   root.querySelector('[data-action="start-immediate"]').addEventListener("click", () => callbacks.startImmediate?.());
   root.querySelector('[data-action="start-scheduled"]').addEventListener("click", () => callbacks.startScheduled?.(readWindows(editor)));
   root.querySelector('[data-action="stop"]').addEventListener("click", () => callbacks.stop?.());
   root.querySelector('[data-action="settings"]').addEventListener("click", () => { editor.hidden = !editor.hidden; });
+  collapse.addEventListener("click", () => layoutController.collapse());
+  expand.addEventListener("click", () => layoutController.expand());
 
   return {
     root,
@@ -209,6 +258,7 @@ export const createPanel = (document, { config, callbacks }) => {
       root.dataset.mode = mode;
       root.dataset.error = String(Boolean(view.error));
       stateLabel.textContent = view.error ? "ERROR" : view.running ? "RUNNING" : mode === "SCHEDULED" ? "SCHEDULED" : "STOPPED";
+      stateShort.title = stateLabel.textContent;
       beijingClock.value.textContent = view.beijingNowText ?? "—";
       clockSync.value.textContent = view.clockSyncText ?? "本机时钟";
       nextWindow.value.textContent = view.nextWindowText ?? "—";
@@ -221,6 +271,14 @@ export const createPanel = (document, { config, callbacks }) => {
           : "未找到";
       }
     },
-    destroy() { root.remove(); }
+    expand: () => layoutController.expand(),
+    collapse: () => layoutController.collapse(),
+    resetLayout: () => layoutController.reset(),
+    applyLayout: (nextLayout) => layoutController.apply(nextLayout),
+    getLayout: () => layoutController.getLayout(),
+    destroy() {
+      layoutController.destroy();
+      root.remove();
+    }
   };
 };

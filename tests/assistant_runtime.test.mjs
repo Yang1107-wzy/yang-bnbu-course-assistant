@@ -7,6 +7,7 @@ import {
   CONFIG_KEY_V2,
   CONFIG_KEY_V3,
   CONTROL_KEY_V3,
+  PANEL_LAYOUT_KEY,
   STATE_KEY_V3,
   createAssistantRuntime
 } from "../src/assistant_runtime.js";
@@ -17,9 +18,11 @@ const createGm = (seed = {}) => {
   const values = new Map(Object.entries(seed));
   const opened = [];
   const listeners = new Map();
+  const menus = new Map();
   return {
     values,
     opened,
+    menus,
     getValue: (key, fallback) => values.has(key) ? values.get(key) : fallback,
     setValue: (key, value) => {
       const old = values.get(key);
@@ -27,13 +30,18 @@ const createGm = (seed = {}) => {
       for (const callback of listeners.get(key) ?? []) callback(key, old, value, false);
     },
     deleteValue: (key) => values.delete(key),
+    emitRemote: (key, value) => {
+      const old = values.get(key);
+      values.set(key, value);
+      for (const callback of listeners.get(key) ?? []) callback(key, old, value, true);
+    },
     addValueChangeListener: (key, callback) => {
       listeners.set(key, [...(listeners.get(key) ?? []), callback]);
       return 1;
     },
     addStyle: () => {},
     notification: () => {},
-    registerMenuCommand: () => {},
+    registerMenuCommand: (name, callback) => menus.set(name, callback),
     openInTab: (url) => opened.push(url)
   };
 };
@@ -46,6 +54,63 @@ const fixture = async (name, url) => {
 const serverClock = (getNow) => async (_url, options) => ({
   options,
   headers: { get: (name) => name.toLowerCase() === "date" ? new Date(getNow()).toUTCString() : null }
+});
+
+const configWithTargets = (...targets) => ({
+  ...createDefaultConfig(),
+  targets: targets.map(({ courseCode, courseName, section, category }) => ({
+    id: `${courseCode}:${section}`,
+    courseCode,
+    courseName,
+    section,
+    category,
+    allowDirectSelect: true,
+    allowJoinWaitingList: true
+  }))
+});
+
+const DEMO_MAJOR = { courseCode: "DEMO1001", courseName: "Example Major Elective", section: "1001", category: "ME" };
+const DEMO_TECH = { courseCode: "DEMO2001", courseName: "Example Technology Course", section: "1001", category: "ME" };
+const DEMO_FREE = { courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE" };
+
+test("persists panel layout, restores it after remount and exposes recovery menus", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const gm = createGm({
+    [PANEL_LAYOUT_KEY]: { left: 440, top: 180, width: 360, height: 400, collapsed: false }
+  });
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({
+    pageWindow: dom.window,
+    gm,
+    autoTimers: false,
+    tabId: "controller",
+    now: () => now,
+    fetchFn: serverClock(() => now)
+  });
+  await runtime.initialize();
+  let root = dom.window.document.querySelector("#bnbu-course-assistant");
+  assert.equal(root.style.left, "440px");
+  assert.equal(root.style.width, "360px");
+
+  gm.emitRemote(PANEL_LAYOUT_KEY, { left: 300, top: 120, width: 340, height: 380, collapsed: false });
+  assert.equal(root.style.left, "300px");
+  assert.equal(root.style.width, "340px");
+
+  root.querySelector('[data-panel-action="collapse"]').click();
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
+  assert.equal(gm.values.get(PANEL_LAYOUT_KEY).collapsed, true);
+
+  await runtime.saveConfig(createDefaultConfig());
+  root = dom.window.document.querySelector("#bnbu-course-assistant");
+  assert.equal(root.dataset.collapsed, "true");
+
+  gm.menus.get("显示/展开 Yang 面板")();
+  assert.equal(root.dataset.collapsed, "false");
+  gm.menus.get("重置 Yang 面板位置")();
+  assert.equal(root.dataset.collapsed, "false");
+  assert.notEqual(root.style.left, "300px");
+  runtime.destroy();
 });
 
 test("initializes fresh v3 runtime while migrating only v2 course configuration", async () => {
@@ -125,7 +190,7 @@ test("a schedule tick recovers from sleep and starts exactly inside the active r
 
 test("scheduled start inside an active round immediately executes a ready Select", async () => {
   const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
-  const gm = createGm();
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
   let calls = 0;
   dom.window.selectItem = () => {
     calls += 1;
@@ -142,7 +207,7 @@ test("scheduled start inside an active round immediately executes a ready Select
 
 test("Test never acts while immediate start calls the ready Select page function", async () => {
   const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
-  const gm = createGm();
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
   let calls = 0;
   dom.window.selectItem = () => {
     calls += 1;
@@ -160,7 +225,7 @@ test("Test never acts while immediate start calls the ready Select page function
 
 test("immediate start joins a ready waiting list without queue or credit inspection", async () => {
   const detail = await fixture("waitlist_available.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=fe");
-  const gm = createGm();
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_FREE) });
   let calls = 0;
   let detailCalls = 0;
   detail.window.viewElective = () => { detailCalls += 1; };
@@ -195,8 +260,7 @@ test("Stop and Escape cancel both manual and scheduled modes", async () => {
 
 test("stops automatically when every configured target is registered", async () => {
   const dom = await fixture("selected.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
-  const config = createDefaultConfig();
-  config.targets = [config.targets[1]];
+  const config = configWithTargets(DEMO_TECH);
   const gm = createGm({ [CONFIG_KEY_V3]: config });
   const now = parseBeijingDateTime("2026-07-20T10:00:00");
   const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "ME-worker", now: () => now, fetchFn: serverClock(() => now) });

@@ -14,9 +14,9 @@
     <div class="profile">My Profile　Student ID: [REDACTED]　Programme: Computer Science and Technology</div>
     <table class="course-table">
       <tr><th>Course Code</th><th>Course</th><th>Curriculum Type</th><th>Status</th></tr>
-      <tr><td>DEMO1001</td><td>Example Major Elective (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
-      <tr><td>DEMO2001</td><td>Example Technology Course (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
-      <tr><td>DEMO3001</td><td>Example Free Elective (1002)</td><td>FE</td><td>WAITLIST_AVAILABLE</td></tr>
+      <tr><td>AI3133</td><td>Natural Language Processing (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
+      <tr><td>COMP4213</td><td>Wireless Communication and Mobile Computing (1001)</td><td>ME</td><td class="selected">SELECTABLE</td></tr>
+      <tr><td>EBIS3113</td><td>Business Forecasting and Machine Learning (1002)</td><td>FE</td><td>WAITLIST_AVAILABLE</td></tr>
     </table>
     <p class="hint">这是本地只读 UI 预览，用于检查面板尺寸、按钮和可读性。</p>
   </main>
@@ -36,11 +36,14 @@
       pollPhaseText: "FAST · 1.5–2.5 秒",
       message: "预览：到点自动运行，也可随时点击立即启动。",
       courseStatuses: {
-        "DEMO1001:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
-        "DEMO2001:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
-        "DEMO3001:1002": { status: "WAITLIST_AVAILABLE", reason: "可加入轮候 · joinWaiting READY", scannedAt: "14:30:02" }
+        "AI3133:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
+        "COMP4213:1001": { status: "SELECTABLE", reason: "可直接选 · selectItem READY", scannedAt: "14:30:01" },
+        "EBIS3113:1002": { status: "WAITLIST_AVAILABLE", reason: "可加入轮候 · joinWaiting READY", scannedAt: "14:30:02" }
       }
     });
+    const previewMode = new URLSearchParams(window.location.search).get("mode");
+    if (previewMode === "collapsed") panel.collapse();
+    if (previewMode === "compact") panel.applyLayout({ left: 1020, top: 410, width: 320, height: 300, collapsed: false });
   </script>
 </body>
 </html>

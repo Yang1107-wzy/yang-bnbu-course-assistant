@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.0.0
+// @version      1.1.0
 // @description  BNBU MIS 可视化自动选课与轮候助手，支持北京时间预约和即时启动
 // @author       Yang1107-wzy
 // @license      MIT
@@ -403,10 +403,15 @@
     allowDirectSelect: true,
     allowJoinWaitingList: true
   });
-  var DEFAULT_TARGETS = [
+  var LEGACY_DEMO_TARGETS = [
     target("DEMO1001", "Example Major Elective", "1001", "ME"),
     target("DEMO2001", "Example Technology Course", "1001", "ME"),
     target("DEMO3001", "Example Free Elective", "1002", "FE")
+  ];
+  var DEFAULT_TARGETS = [
+    target("AI3133", "Natural Language Processing", "1001", "ME"),
+    target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
+    target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
   ];
   var cloneWindows = (windows) => windows.map(({ id, label, enabled, startText, endText }) => ({ id, label, enabled, startText, endText }));
   var createDefaultConfig = () => ({
@@ -453,7 +458,12 @@
       targets: (Array.isArray(input?.targets) && input.targets.length ? input.targets : defaults.targets).map(normalizeTarget)
     };
   };
-  var migrateConfig = (input) => cleanConfig(input);
+  var sameTargets = (left, right) => Array.isArray(left) && left.length === right.length && left.every((item, index) => {
+    const normalized = normalizeTarget(item);
+    const expected = normalizeTarget(right[index]);
+    return normalized.courseCode === expected.courseCode && normalized.courseName === expected.courseName && normalized.section === expected.section && normalized.category === expected.category;
+  });
+  var migrateConfig = (input) => cleanConfig(sameTargets(input?.targets, LEGACY_DEMO_TARGETS) ? { ...input, targets: DEFAULT_TARGETS } : input);
   var validateConfig = (config) => {
     const errors = [];
     if (!config || typeof config !== "object") return { valid: false, errors: ["config-must-be-an-object"] };
@@ -806,6 +816,163 @@
     return Boolean(worker && now - worker.at <= timeoutMs);
   };
 
+  // src/panel_layout.js
+  var VIEWPORT_MARGIN = 8;
+  var DEFAULT_WIDTH = 380;
+  var DEFAULT_HEIGHT = 520;
+  var MIN_WIDTH = 300;
+  var MIN_HEIGHT = 220;
+  var COLLAPSED_WIDTH = 104;
+  var COLLAPSED_HEIGHT = 44;
+  var finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  var clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+  var viewportOf = (pageWindow) => ({
+    width: Math.max(1, finite(pageWindow?.innerWidth, 1024)),
+    height: Math.max(1, finite(pageWindow?.innerHeight, 768))
+  });
+  var normalizePanelLayout = (input = {}, viewport = { width: 1024, height: 768 }) => {
+    const viewportWidth = Math.max(1, finite(viewport.width, 1024));
+    const viewportHeight = Math.max(1, finite(viewport.height, 768));
+    const maxWidth = Math.max(MIN_WIDTH, viewportWidth - VIEWPORT_MARGIN * 2);
+    const maxHeight = Math.max(MIN_HEIGHT, viewportHeight - VIEWPORT_MARGIN * 2);
+    const width = clamp(finite(input?.width, DEFAULT_WIDTH), MIN_WIDTH, maxWidth);
+    const height = clamp(finite(input?.height, DEFAULT_HEIGHT), MIN_HEIGHT, maxHeight);
+    const defaultLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - width - 18);
+    const defaultTop = Math.max(VIEWPORT_MARGIN, viewportHeight - height - 18);
+    const left = clamp(finite(input?.left, defaultLeft), VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
+    const top = clamp(finite(input?.top, defaultTop), VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN);
+    return { left, top, width, height, collapsed: input?.collapsed === true };
+  };
+  var isInteractive = (target2) => Boolean(target2?.closest?.("button,input,select,textarea,a,label,[contenteditable='true']"));
+  var createPanelLayoutController = ({
+    pageWindow,
+    root,
+    dragHandle,
+    resizeHandle,
+    initialLayout,
+    onLayoutChange = () => {
+    }
+  }) => {
+    let layout = normalizePanelLayout(initialLayout, viewportOf(pageWindow));
+    let interaction = null;
+    let destroyed = false;
+    let previousUserSelect = "";
+    const visibleSize = () => layout.collapsed ? { width: COLLAPSED_WIDTH, height: COLLAPSED_HEIGHT } : { width: layout.width, height: layout.height };
+    const clampPosition = (left, top) => {
+      const viewport = viewportOf(pageWindow);
+      const size = visibleSize();
+      return {
+        left: clamp(left, VIEWPORT_MARGIN, viewport.width - size.width - VIEWPORT_MARGIN),
+        top: clamp(top, VIEWPORT_MARGIN, viewport.height - size.height - VIEWPORT_MARGIN)
+      };
+    };
+    const render = () => {
+      const position = clampPosition(layout.left, layout.top);
+      layout = { ...layout, ...position };
+      root.dataset.collapsed = String(layout.collapsed);
+      root.style.left = `${layout.left}px`;
+      root.style.top = `${layout.top}px`;
+      root.style.right = "auto";
+      root.style.bottom = "auto";
+      root.style.width = layout.collapsed ? `${COLLAPSED_WIDTH}px` : `${layout.width}px`;
+      root.style.height = layout.collapsed ? `${COLLAPSED_HEIGHT}px` : `${layout.height}px`;
+    };
+    const emit = () => onLayoutChange({ ...layout });
+    const begin = (type, event) => {
+      if (destroyed || event.button > 0) return;
+      if (type === "drag" && isInteractive(event.target)) return;
+      if (type === "resize" && layout.collapsed) return;
+      event.preventDefault();
+      previousUserSelect = root.ownerDocument.documentElement.style.userSelect;
+      root.ownerDocument.documentElement.style.userSelect = "none";
+      root.dataset.layoutInteracting = "true";
+      interaction = {
+        type,
+        startX: event.clientX,
+        startY: event.clientY,
+        left: layout.left,
+        top: layout.top,
+        width: layout.width,
+        height: layout.height
+      };
+    };
+    const move = (event) => {
+      if (!interaction || destroyed) return;
+      event.preventDefault();
+      const deltaX = event.clientX - interaction.startX;
+      const deltaY = event.clientY - interaction.startY;
+      if (interaction.type === "drag") {
+        const position = clampPosition(interaction.left + deltaX, interaction.top + deltaY);
+        layout = { ...layout, ...position };
+      } else {
+        const viewport = viewportOf(pageWindow);
+        layout = {
+          ...layout,
+          width: clamp(interaction.width + deltaX, MIN_WIDTH, viewport.width - layout.left - VIEWPORT_MARGIN),
+          height: clamp(interaction.height + deltaY, MIN_HEIGHT, viewport.height - layout.top - VIEWPORT_MARGIN)
+        };
+      }
+      render();
+    };
+    const end = () => {
+      if (!interaction || destroyed) return;
+      interaction = null;
+      root.ownerDocument.documentElement.style.userSelect = previousUserSelect;
+      delete root.dataset.layoutInteracting;
+      emit();
+    };
+    const onDragStart = (event) => begin("drag", event);
+    const onResizeStart = (event) => begin("resize", event);
+    const onViewportResize = () => {
+      if (interaction || destroyed) return;
+      layout = normalizePanelLayout(layout, viewportOf(pageWindow));
+      render();
+      emit();
+    };
+    dragHandle.addEventListener("pointerdown", onDragStart);
+    resizeHandle.addEventListener("pointerdown", onResizeStart);
+    pageWindow.addEventListener("pointermove", move);
+    pageWindow.addEventListener("pointerup", end);
+    pageWindow.addEventListener("pointercancel", end);
+    pageWindow.addEventListener("resize", onViewportResize);
+    render();
+    return {
+      expand() {
+        layout = normalizePanelLayout({ ...layout, collapsed: false }, viewportOf(pageWindow));
+        render();
+        emit();
+      },
+      collapse() {
+        layout = { ...layout, collapsed: true };
+        render();
+        emit();
+      },
+      reset() {
+        layout = normalizePanelLayout({}, viewportOf(pageWindow));
+        render();
+        emit();
+      },
+      apply(nextLayout) {
+        if (interaction || destroyed) return false;
+        layout = normalizePanelLayout(nextLayout, viewportOf(pageWindow));
+        render();
+        return true;
+      },
+      getLayout: () => ({ ...layout }),
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        root.ownerDocument.documentElement.style.userSelect = previousUserSelect;
+        dragHandle.removeEventListener("pointerdown", onDragStart);
+        resizeHandle.removeEventListener("pointerdown", onResizeStart);
+        pageWindow.removeEventListener("pointermove", move);
+        pageWindow.removeEventListener("pointerup", end);
+        pageWindow.removeEventListener("pointercancel", end);
+        pageWindow.removeEventListener("resize", onViewportResize);
+      }
+    };
+  };
+
   // src/ui_panel.js
   var element = (document, tag, className = "", text = void 0) => {
     const node = document.createElement(tag);
@@ -814,11 +981,15 @@
     return node;
   };
   var PANEL_CSS = `
-#bnbu-course-assistant{position:fixed;right:18px;bottom:18px;width:380px;max-height:82vh;overflow:auto;z-index:2147483647;background:rgba(30,30,32,.97);color:#f5f5f5;border:1px solid #58595f;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.38);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#bnbu-course-assistant{position:fixed;right:18px;bottom:18px;width:380px;height:min(520px,calc(100vh - 36px));display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;z-index:2147483647;background:rgba(30,30,32,.97);color:#f5f5f5;border:1px solid #58595f;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.38);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 #bnbu-course-assistant[data-running="true"]{border:2px solid #4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"]{border:2px solid #60a5fa}
 #bnbu-course-assistant[data-error="true"]{border:2px solid #ff4d4f}
-#bnbu-course-assistant .ca-head{display:flex;justify-content:space-between;align-items:center;padding:11px 13px;border-bottom:1px solid #4a4b50;font-weight:750}
+#bnbu-course-assistant .ca-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none;padding:11px 13px;border-bottom:1px solid #4a4b50;font-weight:750;cursor:move;touch-action:none}
+#bnbu-course-assistant .ca-head-controls{display:flex;align-items:center;gap:7px}
+#bnbu-course-assistant .ca-title-short,#bnbu-course-assistant .ca-state-short,#bnbu-course-assistant .ca-expand{display:none}
+#bnbu-course-assistant .ca-head button{padding:2px 7px;border-radius:6px;font-size:14px;line-height:20px}
+#bnbu-course-assistant .ca-body{flex:1;min-height:0;overflow:auto}
 #bnbu-course-assistant .ca-state{font-weight:800;color:#ffcc66}
 #bnbu-course-assistant[data-running="true"] .ca-state{color:#4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state{color:#93c5fd}
@@ -845,6 +1016,15 @@
 #bnbu-course-assistant .ca-target-row input,#bnbu-course-assistant .ca-target-row select,#bnbu-course-assistant .ca-window-row input{width:100%;min-width:0}
 #bnbu-course-assistant .ca-target-row button{padding:4px;background:#6a3032;color:white}
 #bnbu-course-assistant .ca-editor-actions{display:flex;gap:7px;margin-top:8px}
+#bnbu-course-assistant .ca-resize{position:absolute;right:2px;bottom:2px;width:18px;height:18px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 0 45%,#a8a8ad 46% 54%,transparent 55% 65%,#a8a8ad 66% 74%,transparent 75%);opacity:.8}
+#bnbu-course-assistant[data-collapsed="true"]{border-radius:22px}
+#bnbu-course-assistant[data-collapsed="true"] .ca-body,#bnbu-course-assistant[data-collapsed="true"] .ca-resize,#bnbu-course-assistant[data-collapsed="true"] .ca-title-full,#bnbu-course-assistant[data-collapsed="true"] .ca-state,#bnbu-course-assistant[data-collapsed="true"] .ca-collapse{display:none}
+#bnbu-course-assistant[data-collapsed="true"] .ca-title-short,#bnbu-course-assistant[data-collapsed="true"] .ca-state-short,#bnbu-course-assistant[data-collapsed="true"] .ca-expand{display:inline-flex}
+#bnbu-course-assistant[data-collapsed="true"] .ca-head{height:100%;box-sizing:border-box;padding:7px 9px;border:0}
+#bnbu-course-assistant .ca-state-short{width:9px;height:9px;border-radius:50%;background:#ffcc66}
+#bnbu-course-assistant[data-running="true"] .ca-state-short{background:#4ade80}
+#bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state-short{background:#93c5fd}
+#bnbu-course-assistant[data-error="true"] .ca-state-short{background:#ff4d4f}
 `;
   var targetKey = (target2) => target2.id ?? `${target2.courseCode}:${target2.section}`;
   var createTargetEditorRow = (document, editor, target2 = {}) => {
@@ -917,7 +1097,7 @@
     row.append(value);
     return { row, value };
   };
-  var createPanel = (document, { config, callbacks }) => {
+  var createPanel = (document, { config, callbacks, layout = {} }) => {
     document.querySelector("#bnbu-course-assistant")?.remove();
     const root = element(document, "section");
     root.id = "bnbu-course-assistant";
@@ -925,17 +1105,35 @@
     root.dataset.mode = "STOPPED";
     root.dataset.error = "false";
     const head = element(document, "div", "ca-head");
-    head.append(element(document, "span", "", "Yang \u62A2\u8BFE\u811A\u672C"));
+    const titles = element(document, "div", "ca-head-title");
+    titles.append(
+      element(document, "span", "ca-title-full", "Yang \u62A2\u8BFE\u811A\u672C"),
+      element(document, "span", "ca-title-short", "Yang")
+    );
     const stateLabel = element(document, "span", "ca-state", "STOPPED");
-    head.append(stateLabel);
+    const stateShort = element(document, "span", "ca-state-short");
+    stateShort.title = "STOPPED";
+    const collapse = element(document, "button", "ca-collapse", "\u2014");
+    collapse.type = "button";
+    collapse.title = "\u6536\u8D77\u9762\u677F";
+    collapse.dataset.panelAction = "collapse";
+    const expand = element(document, "button", "ca-expand", "\u2197");
+    expand.type = "button";
+    expand.title = "\u5C55\u5F00\u9762\u677F";
+    expand.dataset.panelAction = "expand";
+    const headControls = element(document, "div", "ca-head-controls");
+    headControls.append(stateLabel, stateShort, collapse, expand);
+    head.append(titles, headControls);
     root.append(head);
+    const body = element(document, "div", "ca-body");
+    body.dataset.panelBody = "true";
     const time = element(document, "div", "ca-time");
     const beijingClock = timeRow(document, "\u5317\u4EAC\u65F6\u95F4", "beijing-clock");
     const clockSync = timeRow(document, "\u6821\u65F6", "clock-sync");
     const nextWindow = timeRow(document, "\u4E0B\u4E00\u7A97\u53E3", "next-window");
     const pollPhase = timeRow(document, "\u8F6E\u8BE2", "poll-phase");
     time.append(beijingClock.row, clockSync.row, nextWindow.row, pollPhase.row);
-    root.append(time);
+    body.append(time);
     const actions = element(document, "div", "ca-actions");
     for (const [action, label] of [
       ["test", "Test"],
@@ -949,7 +1147,7 @@
       button.dataset.action = action;
       actions.append(button);
     }
-    root.append(actions);
+    body.append(actions);
     const courses = element(document, "div", "ca-courses");
     const courseRefs = /* @__PURE__ */ new Map();
     for (const target2 of config.targets) {
@@ -962,7 +1160,7 @@
       courses.append(card);
       courseRefs.set(key, status);
     }
-    root.append(courses);
+    body.append(courses);
     const editor = element(document, "div", "ca-editor");
     editor.dataset.settingsEditor = "true";
     editor.hidden = true;
@@ -985,10 +1183,22 @@
     const editorActions = element(document, "div", "ca-editor-actions");
     editorActions.append(save);
     editor.append(editorActions);
-    root.append(editor);
+    body.append(editor);
     const message = element(document, "div", "ca-message", "\u70B9\u51FB Test \u68C0\u67E5\uFF0C\u6216\u9009\u62E9\u7ACB\u5373/\u9884\u7EA6\u542F\u52A8");
-    root.append(message, element(document, "div", "ca-blessing", "\u795D\u60A8\u62A2\u5230\u5FC3\u4EEA\u8BFE\u7A0B"));
+    body.append(message, element(document, "div", "ca-blessing", "\u795D\u60A8\u62A2\u5230\u5FC3\u4EEA\u8BFE\u7A0B"));
+    const resizeHandle = element(document, "div", "ca-resize");
+    resizeHandle.dataset.resizeHandle = "true";
+    resizeHandle.title = "\u62D6\u52A8\u8C03\u6574\u9762\u677F\u5927\u5C0F";
+    root.append(body, resizeHandle);
     document.body.append(root);
+    const layoutController = createPanelLayoutController({
+      pageWindow: document.defaultView,
+      root,
+      dragHandle: head,
+      resizeHandle,
+      initialLayout: layout.initial,
+      onLayoutChange: layout.onChange
+    });
     root.querySelector('[data-action="test"]').addEventListener("click", () => callbacks.test?.());
     root.querySelector('[data-action="start-immediate"]').addEventListener("click", () => callbacks.startImmediate?.());
     root.querySelector('[data-action="start-scheduled"]').addEventListener("click", () => callbacks.startScheduled?.(readWindows(editor)));
@@ -996,6 +1206,8 @@
     root.querySelector('[data-action="settings"]').addEventListener("click", () => {
       editor.hidden = !editor.hidden;
     });
+    collapse.addEventListener("click", () => layoutController.collapse());
+    expand.addEventListener("click", () => layoutController.expand());
     return {
       root,
       update(view) {
@@ -1004,6 +1216,7 @@
         root.dataset.mode = mode;
         root.dataset.error = String(Boolean(view.error));
         stateLabel.textContent = view.error ? "ERROR" : view.running ? "RUNNING" : mode === "SCHEDULED" ? "SCHEDULED" : "STOPPED";
+        stateShort.title = stateLabel.textContent;
         beijingClock.value.textContent = view.beijingNowText ?? "\u2014";
         clockSync.value.textContent = view.clockSyncText ?? "\u672C\u673A\u65F6\u949F";
         nextWindow.value.textContent = view.nextWindowText ?? "\u2014";
@@ -1014,7 +1227,13 @@
           status.textContent = current ? `${current.status}${current.reason ? ` \u2014 ${current.reason}` : ""}${current.scannedAt ? ` \xB7 ${current.scannedAt}` : ""}` : "\u672A\u627E\u5230";
         }
       },
+      expand: () => layoutController.expand(),
+      collapse: () => layoutController.collapse(),
+      resetLayout: () => layoutController.reset(),
+      applyLayout: (nextLayout) => layoutController.apply(nextLayout),
+      getLayout: () => layoutController.getLayout(),
       destroy() {
+        layoutController.destroy();
         root.remove();
       }
     };
@@ -1025,6 +1244,7 @@
   var STATE_KEY_V3 = "bnbu.courseAssistant.state.v3";
   var CONFIG_KEY_V3 = "bnbu.courseAssistant.config.v3";
   var CONTROL_KEY_V3 = "bnbu.courseAssistant.control.v3";
+  var PANEL_LAYOUT_KEY = "bnbu.courseAssistant.panelLayout.v1";
   var LOG_KEY_V3 = "bnbu.courseAssistant.logs.v3";
   var WORKER_ID_KEY_V3 = "bnbu.courseAssistant.workerId.v3";
   var delay = (pageWindow, ms) => new Promise((resolve) => pageWindow.setTimeout(resolve, ms));
@@ -1095,8 +1315,10 @@
     const legacyConfigStorage = buildStorage(CONFIG_KEY_V2, gm2, null);
     const stateStorage = buildStorage(STATE_KEY_V3, gm2, null);
     const controlStorage = buildStorage(CONTROL_KEY_V3, gm2, null);
+    const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm2, null);
     const logStorage = buildStorage(LOG_KEY_V3, gm2, []);
     const logger = new AuditLogger(logStorage, 300);
+    let panelLayout = await panelLayoutStorage.get();
     const storedConfig = await configStorage.get();
     const legacyConfig = storedConfig ? null : await legacyConfigStorage.get();
     let config = migrateConfig(storedConfig ?? legacyConfig ?? createDefaultConfig());
@@ -1121,6 +1343,7 @@
     let reloadTimer = null;
     let heartbeatTimer = null;
     let uiTimer = null;
+    let layoutSaveTimer = null;
     let message = "\u70B9\u51FB Test \u68C0\u67E5\uFF0C\u6216\u9009\u62E9\u7ACB\u5373/\u9884\u7EA6\u542F\u52A8";
     const readState = async () => {
       state = await stateStorage.get();
@@ -1437,16 +1660,38 @@
       await updatePanel();
       return true;
     };
+    const savePanelLayout = (nextLayout) => {
+      panelLayout = nextLayout;
+      if (layoutSaveTimer) pageWindow.clearTimeout(layoutSaveTimer);
+      layoutSaveTimer = pageWindow.setTimeout(() => {
+        layoutSaveTimer = null;
+        void panelLayoutStorage.set(panelLayout);
+      }, 150);
+    };
+    const flushPanelLayout = async () => {
+      if (!panelLayout) return;
+      if (layoutSaveTimer) {
+        pageWindow.clearTimeout(layoutSaveTimer);
+        layoutSaveTimer = null;
+      }
+      await panelLayoutStorage.set(panelLayout);
+    };
+    const onPageHide = () => {
+      void flushPanelLayout();
+    };
     const mountPanel = () => {
+      if (panel) panelLayout = panel.getLayout();
       panel?.destroy();
       panel = createPanel(document, {
         config,
-        callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig }
+        callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig },
+        layout: { initial: panelLayout, onChange: savePanelLayout }
       });
     };
     const initialize = async () => {
       gm2.addStyle?.(PANEL_CSS);
       mountPanel();
+      pageWindow.addEventListener("pagehide", onPageHide);
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") void stop("Esc \u5DF2\u505C\u6B62");
       });
@@ -1463,10 +1708,16 @@
         }
         if (next.mode === "STOPPED") clearReload();
       });
+      panelLayoutStorage.listen((next, _previous, remote) => {
+        if (!remote || !next) return;
+        if (panel?.applyLayout(next)) panelLayout = panel.getLayout();
+      });
       gm2.registerMenuCommand?.("MIS Test", () => test());
       gm2.registerMenuCommand?.("MIS \u7ACB\u5373\u542F\u52A8", () => startImmediate());
       gm2.registerMenuCommand?.("MIS \u9884\u7EA6\u542F\u52A8", () => startScheduled());
       gm2.registerMenuCommand?.("MIS Stop", () => stop());
+      gm2.registerMenuCommand?.("\u663E\u793A/\u5C55\u5F00 Yang \u9762\u677F", () => panel?.expand());
+      gm2.registerMenuCommand?.("\u91CD\u7F6E Yang \u9762\u677F\u4F4D\u7F6E", () => panel?.resetLayout());
       await syncClock(false);
       let current = await readState();
       if (current.mode === "SCHEDULED") {
@@ -1508,6 +1759,8 @@
         clearReload();
         if (heartbeatTimer) pageWindow.clearInterval(heartbeatTimer);
         if (uiTimer) pageWindow.clearInterval(uiTimer);
+        pageWindow.removeEventListener("pagehide", onPageHide);
+        void flushPanelLayout();
         panel?.destroy();
       }
     };

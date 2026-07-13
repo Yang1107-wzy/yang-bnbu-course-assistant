@@ -5,10 +5,10 @@ import { JSDOM } from "jsdom";
 import { createDefaultConfig } from "../src/config_manager.js";
 import { createPanel } from "../src/ui_panel.js";
 
-const setup = (callbacks = {}) => {
+const setup = (callbacks = {}, layout = undefined) => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const config = createDefaultConfig();
-  const panel = createPanel(dom.window.document, { config, callbacks });
+  const panel = createPanel(dom.window.document, { config, callbacks, layout });
   return { dom, config, panel };
 };
 
@@ -30,6 +30,25 @@ test("renders compact time status and exactly two start paths", () => {
   assert.ok(root.querySelector('[data-field="next-window"]'));
   assert.ok(root.querySelector('[data-field="poll-phase"]'));
   assert.equal(root.querySelector('[data-field="poll-interval"]'), null);
+});
+
+test("exposes an independent draggable, resizable and collapsible panel shell", () => {
+  const changes = [];
+  const { panel } = setup({}, {
+    initial: { left: 500, top: 200, width: 380, height: 420, collapsed: false },
+    onChange: (layout) => changes.push(layout)
+  });
+  assert.ok(panel.root.querySelector("[data-panel-body]"));
+  assert.ok(panel.root.querySelector("[data-resize-handle]"));
+  panel.root.querySelector('[data-panel-action="collapse"]').click();
+  assert.equal(panel.root.dataset.collapsed, "true");
+  assert.equal(panel.getLayout().collapsed, true);
+  assert.equal(changes.at(-1).collapsed, true);
+
+  panel.root.querySelector('[data-panel-action="expand"]').click();
+  assert.equal(panel.root.dataset.collapsed, "false");
+  assert.equal(panel.getLayout().width, 380);
+  panel.destroy();
 });
 
 test("invokes immediate, scheduled, Stop and Test independently", () => {
