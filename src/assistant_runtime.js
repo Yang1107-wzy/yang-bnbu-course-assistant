@@ -380,15 +380,28 @@ export const createAssistantRuntime = async ({
   const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
 
   const syncClock = async (force = false) => {
-    let current = await readState();
+    const current = await readState();
     const age = now() - (current.clockSync?.syncedAt ?? 0);
     if (!force && current.clockSync?.syncedAt && age >= 0 && age < config.clockSyncIntervalMs) return current.clockSync;
     const url = new URL("/mis/student/es/elective.do", pageWindow.location.origin).href;
-    const clockSync = await syncServerClock({ fetchFn: clockFetch, url, now });
-    current = { ...current, clockSync };
-    await publishControlState(current);
+    const clockSync = await syncServerClock({
+      fetchFn: clockFetch,
+      url,
+      now,
+      timeoutMs: 1000,
+      setTimeoutFn: pageWindow.setTimeout.bind(pageWindow),
+      clearTimeoutFn: pageWindow.clearTimeout.bind(pageWindow)
+    });
+    const latest = await readState();
+    await publishControlState({ ...latest, clockSync });
     await updatePanel();
     return clockSync;
+  };
+
+  const syncClockInBackground = (force = false) => {
+    void syncClock(force).catch((error) => {
+      void log({ level: "warn", event: "clock-sync-failed", reason: error?.message ?? "clock-sync-failed" });
+    });
   };
 
   const executeNextInternal = async (evaluations) => {
@@ -676,13 +689,13 @@ export const createAssistantRuntime = async ({
   };
 
   const startImmediate = async () => {
-    await syncClock(true);
     let current = startManualRuntime(await readState(), now());
     current = { ...current, targets: config.targets, selectionWindows: config.selectionWindows };
     await publishControlState(current);
     message = "手动立即启动：正在极速检测并选课";
-    await ensureWorkers();
+    syncClockInBackground(true);
     const result = await scan({ allowActions: true });
+    await ensureWorkers();
     await scheduleReload();
     await updatePanel();
     return result;

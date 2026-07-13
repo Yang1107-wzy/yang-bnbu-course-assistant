@@ -68,6 +68,27 @@ test("falls back to local time when fetch fails or the Date header is invalid", 
   assert.equal(invalid.error, "clock-sync-invalid-date");
 });
 
+test("falls back to local time when BNBU clock calibration exceeds the hard timeout", async () => {
+  const outcome = await Promise.race([
+    syncServerClock({
+      url: "https://mis.bnbu.edu.cn/mis/student/es/elective.do",
+      now: () => 7000,
+      timeoutMs: 5,
+      fetchFn: () => new Promise(() => {})
+    }),
+    new Promise((resolve) => setTimeout(() => resolve("still-pending"), 30))
+  ]);
+  assert.notEqual(outcome, "still-pending");
+  assert.deepEqual(outcome, {
+    source: "LOCAL",
+    offsetMs: 0,
+    rttMs: null,
+    uncertaintyMs: null,
+    syncedAt: 7000,
+    error: "clock-sync-timeout"
+  });
+});
+
 test("applies offset and expires calibration after five minutes", () => {
   const sync = { source: "BNBU_SERVER", offsetMs: 800, syncedAt: 1000 };
   assert.equal(correctedNow(2000, sync), 2800);

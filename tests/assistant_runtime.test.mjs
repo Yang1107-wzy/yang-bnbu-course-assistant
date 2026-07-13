@@ -7,6 +7,7 @@ import {
   CONFIG_KEY_V2,
   CONFIG_KEY_V3,
   CONTROL_KEY_V3,
+  MIGRATION_KEY_V12,
   PANEL_LAYOUT_KEY,
   STATE_KEY_V3,
   createAssistantRuntime
@@ -182,6 +183,42 @@ test("manual immediate start opens one dedicated worker per target and reuses op
   assert.deepEqual(gm.opened.map((url) => parseWorkerMarker(new URL(url)).slotId), ["ME-1", "ME-2", "FE-1"]);
   await runtime.startImmediate();
   assert.equal(gm.opened.length, 3);
+});
+
+test("manual immediate start publishes RUNNING without waiting for a hanging clock calibration", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const freshClock = { source: "BNBU_SERVER", offsetMs: 0, rttMs: 0, uncertaintyMs: 500, syncedAt: now, error: null };
+  const gm = createGm({
+    [MIGRATION_KEY_V12]: true,
+    [CONTROL_KEY_V3]: {
+      version: 3,
+      generation: 1,
+      mode: "STOPPED",
+      running: false,
+      scheduleEnabled: false,
+      selectionWindows: createDefaultConfig().selectionWindows,
+      clockSync: freshClock,
+      pollPhase: "STOPPED"
+    }
+  });
+  const runtime = await createAssistantRuntime({
+    pageWindow: dom.window,
+    gm,
+    autoTimers: false,
+    tabId: "controller",
+    now: () => now,
+    fetchFn: () => new Promise(() => {})
+  });
+  await runtime.initialize();
+  const outcome = await Promise.race([
+    runtime.startImmediate().then(() => "started"),
+    new Promise((resolve) => dom.window.setTimeout(() => resolve("blocked"), 30))
+  ]);
+  assert.equal(outcome, "started");
+  const state = await runtime.getState();
+  assert.equal(state.mode, "MANUAL");
+  assert.equal(state.running, true);
 });
 
 test("scheduled start prewarms workers at the normal three-second phase", async () => {

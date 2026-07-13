@@ -24,20 +24,36 @@ export const estimateClockSync = ({ serverDate, sentAt, receivedAt }) => {
   };
 };
 
-export const syncServerClock = async ({ fetchFn, url, now = Date.now }) => {
+export const syncServerClock = async ({
+  fetchFn,
+  url,
+  now = Date.now,
+  timeoutMs = 1000,
+  setTimeoutFn = globalThis.setTimeout,
+  clearTimeoutFn = globalThis.clearTimeout
+}) => {
   const sentAt = now();
+  const timeoutToken = Symbol("clock-sync-timeout");
+  let timeoutId = null;
   try {
-    const response = await fetchFn(url, {
-      method: "HEAD",
-      credentials: "same-origin",
-      cache: "no-store",
-      redirect: "follow"
+    const fetchPromise = fetchFn(url, {
+        method: "HEAD",
+        credentials: "same-origin",
+        cache: "no-store",
+        redirect: "follow"
+      });
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeoutFn(() => resolve(timeoutToken), timeoutMs);
     });
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    if (response === timeoutToken) return localFallback(now(), "clock-sync-timeout");
     const receivedAt = now();
     const result = estimateClockSync({ serverDate: response?.headers?.get?.("Date"), sentAt, receivedAt });
     return result.source === "BNBU_SERVER" ? result : localFallback(receivedAt, "clock-sync-invalid-date");
   } catch {
     return localFallback(now(), "clock-sync-fetch-failed");
+  } finally {
+    if (timeoutId !== null) clearTimeoutFn(timeoutId);
   }
 };
 
