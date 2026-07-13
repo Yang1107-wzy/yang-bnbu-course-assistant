@@ -76,7 +76,7 @@ test("falls back to local time when BNBU clock calibration exceeds the hard time
       timeoutMs: 5,
       fetchFn: () => new Promise(() => {})
     }),
-    new Promise((resolve) => setTimeout(() => resolve("still-pending"), 30))
+    new Promise((resolve) => globalThis.setTimeout(() => resolve("still-pending"), 30))
   ]);
   assert.notEqual(outcome, "still-pending");
   assert.deepEqual(outcome, {

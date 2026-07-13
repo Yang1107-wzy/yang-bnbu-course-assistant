@@ -32,7 +32,7 @@ import {
   createWorkerUrl,
   heartbeatWorkerSlot,
   parseWorkerMarker,
-  reserveWorkerOpening,
+  reserveWorkerOpenings,
   workerSlotIsHealthy
 } from "./worker_pool.js";
 
@@ -365,26 +365,27 @@ export const createAssistantRuntime = async ({
   const ensureWorkersUnlocked = async () => {
     if (!isController) return;
     const links = findCategoryDetailLinks(document, pageWindow.location);
-    for (const slot of workerAssignments()) {
-      if (!links[slot.category]) continue;
-      const openingToken = randomId(pageWindow);
-      const reservation = reserveWorkerOpening(
-        await readWorkerPool(),
-        slot,
-        openingToken,
-        now(),
-        30000,
-        config.controllerHeartbeatTimeoutMs
-      );
-      if (!reservation.reserved) continue;
-      await writeWorkerPool(reservation.registry);
-      const verified = await readWorkerPool();
-      if (verified[slot.slotId]?.openingToken !== openingToken) continue;
+    const slots = workerAssignments().filter((slot) => links[slot.category]);
+    const reservation = reserveWorkerOpenings(
+      await readWorkerPool(),
+      slots,
+      () => randomId(pageWindow),
+      now(),
+      60000,
+      config.controllerHeartbeatTimeoutMs
+    );
+    if (reservation.reservations.length > 0) await writeWorkerPool(reservation.registry);
+    for (const { slot, openingToken } of reservation.reservations) {
       gm.openInTab?.(createWorkerUrl(links[slot.category], slot, openingToken), { active: false, insert: true, setParent: true });
     }
     await updatePanel();
   };
   const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
+  const ensureWorkersInBackground = () => {
+    void ensureWorkers().catch((error) => {
+      void log({ level: "warn", event: "worker-prewarm-failed", reason: error?.message ?? "worker-prewarm-failed" });
+    });
+  };
 
   const syncClock = async (force = false) => {
     const current = await readState();
@@ -591,7 +592,7 @@ export const createAssistantRuntime = async ({
           return !(status?.status === "FAILED"
             && (status.attempts >= 3 || (Number.isFinite(status.retryAt) && status.retryAt > now())));
         });
-        current.actionQueue = enqueueCandidates(current.actionQueue, candidates, workerId, now());
+        current.actionQueue = enqueueCandidates(current.actionQueue, candidates, workerId, now(), isHotPage ? 100 : 0);
       }
       await writeState(current);
       await heartbeatCurrentWorker(now());
@@ -665,7 +666,7 @@ export const createAssistantRuntime = async ({
   const tick = async () => {
     let current = await readState();
     if (current.mode === "SCHEDULED") {
-      if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) await syncClock(false);
+      if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) syncClockInBackground(false);
       current = await readState();
       const wasRunning = current.running;
       const next = applyScheduleTick(current, correctedCurrentTime(current));
@@ -675,14 +676,14 @@ export const createAssistantRuntime = async ({
         || next.activeWindowId !== current.activeWindowId
         || next.nextTransitionAt !== current.nextTransitionAt;
       if (changed) current = await publishControlState(next);
-      if (isController && current.mode !== "STOPPED") await ensureWorkers();
+      if (isController && current.mode !== "STOPPED") ensureWorkersInBackground();
       if (!wasRunning && current.running) {
         message = "预约窗口已开始，正在自动选课";
         await scan({ allowActions: true });
       }
       await scheduleReload();
     } else if (current.mode === "MANUAL") {
-      if (isController) await ensureWorkers();
+      if (isController) ensureWorkersInBackground();
       await scheduleReload();
     } else {
       clearReload();
@@ -693,9 +694,10 @@ export const createAssistantRuntime = async ({
 
   const test = async () => {
     message = "Test：只识别，不执行动作";
-    await syncClock(false);
-    await ensureWorkers();
-    return scan({ allowActions: false });
+    const result = await scan({ allowActions: false });
+    syncClockInBackground(false);
+    ensureWorkersInBackground();
+    return result;
   };
 
   const startImmediate = async () => {
@@ -705,7 +707,7 @@ export const createAssistantRuntime = async ({
     message = "手动立即启动：正在极速检测并选课";
     syncClockInBackground(true);
     const result = await scan({ allowActions: true });
-    await ensureWorkers();
+    ensureWorkersInBackground();
     await scheduleReload();
     await updatePanel();
     return result;
@@ -721,13 +723,13 @@ export const createAssistantRuntime = async ({
     }
     config = candidate;
     await configStorage.set(config);
-    await syncClock(true);
     const current = await readState();
     let scheduled = scheduleRuntime(current, config.selectionWindows, correctedCurrentTime(current));
     scheduled = { ...scheduled, targets: config.targets };
     await publishControlState(scheduled);
     message = scheduled.running ? "当前窗口已开放，立即自动选课" : "预约成功，等待下一选课窗口";
-    await ensureWorkers();
+    syncClockInBackground(true);
+    ensureWorkersInBackground();
     await scan({ allowActions: scheduled.running });
     await scheduleReload();
     await updatePanel();
@@ -861,14 +863,14 @@ export const createAssistantRuntime = async ({
       gm.registerMenuCommand?.("重置 Yang 面板位置", () => panel?.resetLayout());
     }
 
-    await syncClock(false);
     let current = await readState();
     if (current.mode === "SCHEDULED") {
       await tick();
       current = await readState();
     }
     await scan({ allowActions: current.running });
-    if (current.mode !== "STOPPED") await ensureWorkers();
+    syncClockInBackground(false);
+    if (current.mode !== "STOPPED") ensureWorkersInBackground();
     await scheduleReload();
 
     if (autoTimers) {

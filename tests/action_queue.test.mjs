@@ -20,6 +20,16 @@ test("enqueues all candidates in FIFO order without duplicates", () => {
   assert.equal(queue[0].argument, "sei-demo1001");
 });
 
+test("a foreground hot-page candidate replaces the same queued background action", () => {
+  const observed = [candidate("AI3133"), candidate("COMP4213")];
+  const background = enqueueCandidates([], observed, "worker-ME-1", 1000, 0);
+  const foreground = enqueueCandidates(background, [observed[0]], "manual-hot-page", 1001, 100);
+  assert.equal(foreground.length, 2);
+  assert.equal(foreground[0].workerId, "manual-hot-page");
+  assert.equal(foreground[0].priority, 100);
+  assert.equal(foreground[1].targetId, "COMP4213:1001");
+});
+
 test("allows only the owning worker to claim the FIFO head", () => {
   const queue = enqueueCandidates([], [candidate("DEMO1001")], "ME-tab", 1000);
   const wrong = claimNextAction({ actionQueue: queue, actionLock: null, lastActionAt: null }, "FE-tab", 2000, 1200);

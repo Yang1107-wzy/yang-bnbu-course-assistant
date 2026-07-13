@@ -10,6 +10,7 @@ import {
   MIGRATION_KEY_V12,
   PANEL_LAYOUT_KEY,
   STATE_KEY_V3,
+  WORKER_POOL_KEY,
   createAssistantRuntime
 } from "../src/assistant_runtime.js";
 import { createDefaultConfig } from "../src/config_manager.js";
@@ -219,6 +220,64 @@ test("manual immediate start publishes RUNNING without waiting for a hanging clo
   const state = await runtime.getState();
   assert.equal(state.mode, "MANUAL");
   assert.equal(state.running, true);
+});
+
+test("Test returns its local result without waiting for Worker storage or tab loading", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const gm = createGm();
+  const setValue = gm.setValue;
+  let blockWorkerWrite = false;
+  gm.setValue = (key, value) => {
+    if (blockWorkerWrite && key === WORKER_POOL_KEY) return new Promise(() => {});
+    return setValue(key, value);
+  };
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "controller", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  blockWorkerWrite = true;
+  const outcome = await Promise.race([
+    runtime.test().then((result) => ({ kind: "tested", result })),
+    new Promise((resolve) => dom.window.setTimeout(() => resolve({ kind: "blocked" }), 30))
+  ]);
+  assert.equal(outcome.kind, "tested");
+  assert.equal(outcome.result.reason, "controller-page");
+});
+
+test("a running manual detail page scans before an unavailable clock calibration", async () => {
+  const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const now = parseBeijingDateTime("2026-07-20T10:00:00");
+  let calls = 0;
+  dom.window.selectItem = () => {
+    calls += 1;
+    return dom.window.confirm("Select Example Major Elective (1001), are you sure?");
+  };
+  const gm = createGm({
+    [MIGRATION_KEY_V12]: true,
+    [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR),
+    [CONTROL_KEY_V3]: {
+      version: 3,
+      generation: 1,
+      mode: "MANUAL",
+      running: true,
+      scheduleEnabled: false,
+      selectionWindows: createDefaultConfig().selectionWindows,
+      pollPhase: "BURST"
+    }
+  });
+  const runtime = await createAssistantRuntime({
+    pageWindow: dom.window,
+    gm,
+    autoTimers: false,
+    tabId: "manual-tab",
+    now: () => now,
+    fetchFn: () => new Promise(() => {})
+  });
+  const outcome = await Promise.race([
+    runtime.initialize().then(() => "initialized"),
+    new Promise((resolve) => dom.window.setTimeout(() => resolve("blocked"), 150))
+  ]);
+  assert.equal(outcome, "initialized");
+  assert.equal(calls, 1);
 });
 
 test("scheduled start prewarms workers at the normal three-second phase", async () => {

@@ -97,6 +97,33 @@ export const reserveWorkerOpening = (
   };
 };
 
+export const reserveWorkerOpenings = (
+  registry = {},
+  slots = [],
+  tokenFactory,
+  now = Date.now(),
+  openingTtlMs = 60000,
+  heartbeatTtlMs = 60000
+) => {
+  let nextRegistry = registry;
+  const reservations = [];
+  for (const slot of slots) {
+    const openingToken = tokenFactory(slot);
+    const result = reserveWorkerOpening(
+      nextRegistry,
+      slot,
+      openingToken,
+      now,
+      openingTtlMs,
+      heartbeatTtlMs
+    );
+    if (!result.reserved) continue;
+    nextRegistry = result.registry;
+    reservations.push({ slot, openingToken });
+  }
+  return { registry: nextRegistry, reservations };
+};
+
 export const claimWorkerSlot = (
   registry = {},
   slot,

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import * as workerPoolModule from "../src/worker_pool.js";
+
 import {
   buildWorkerAssignments,
   claimWorkerSlot,
@@ -67,6 +69,30 @@ test("opening and owner leases prevent duplicates until sixty-second heartbeat e
   assert.equal(workerSlotIsHealthy(heartbeat.registry, "ME-1", 121999, 60000), true);
   assert.equal(workerSlotIsHealthy(heartbeat.registry, "ME-1", 122001, 60000), false);
   assert.equal(reserveWorkerOpening(heartbeat.registry, slot, "open-d", 122001, 30000, 60000).reserved, true);
+});
+
+test("batch opening reserves every missing slot in one registry update", () => {
+  assert.equal(typeof workerPoolModule.reserveWorkerOpenings, "function");
+  const slots = buildWorkerAssignments([
+    target("AI3133", "1001", "ME"),
+    target("COMP4213", "1001", "ME"),
+    target("EBIS3113", "1002", "FE")
+  ], 6);
+  const result = workerPoolModule.reserveWorkerOpenings(
+    {},
+    slots,
+    (slot) => `open-${slot.slotId}`,
+    1000,
+    60000,
+    60000
+  );
+  assert.deepEqual(result.reservations.map(({ slot, openingToken }) => [slot.slotId, openingToken]), [
+    ["ME-1", "open-ME-1"],
+    ["ME-2", "open-ME-2"],
+    ["FE-1", "open-FE-1"]
+  ]);
+  assert.equal(result.registry["ME-1"].openingUntil, 61000);
+  assert.equal(result.registry["FE-1"].openingUntil, 61000);
 });
 
 test("a duplicate claimant cannot take a healthy owned slot", () => {
