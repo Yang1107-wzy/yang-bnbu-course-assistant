@@ -12,17 +12,17 @@ import {
   validateArchiveEntries
 } from "../tools/release_package.js";
 
-test("defines the three v1.2.0 GitHub Release assets", () => {
-  assert.equal(RELEASE_VERSION, "1.2.0");
+test("defines the three v1.2.1 GitHub Release assets", () => {
+  assert.equal(RELEASE_VERSION, "1.2.1");
   assert.deepEqual(RELEASE_ASSETS, {
     userscript: "yang-bnbu-course-assistant.user.js",
-    archive: "yang-bnbu-course-assistant-v1.2.0.zip",
+    archive: "yang-bnbu-course-assistant-v1.2.1.zip",
     checksums: "SHA256SUMS.txt"
   });
 });
 
 test("accepts the source bundle allowlist and rejects private or generated paths", () => {
-  const root = "yang-bnbu-course-assistant-v1.2.0/";
+  const root = "yang-bnbu-course-assistant-v1.2.1/";
   assert.doesNotThrow(() => validateArchiveEntries([
     `${root}README.md`,
     `${root}LICENSE`,

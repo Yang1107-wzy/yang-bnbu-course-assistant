@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 - 2026-07-13
+
+- Promoted manually opened ME/FE detail pages to foreground Hot Pages that scan every configured target in the visible category.
+- Made immediate start publish RUNNING and scan the current page before BNBU clock calibration or Worker prewarming.
+- Added a one-second hard timeout for same-origin server clock calibration with explicit local-clock fallback.
+- Made Test return the current-page result without waiting for background tabs and reduced Worker reservations to one batch storage update.
+- Added foreground queue priority while retaining shared deduplication, pending-action verification and the three dedicated fallback Workers.
+
 ## 1.2.0 - 2026-07-13
 
 - Added a bounded target-aware Worker pool: the three default courses receive dedicated workers and larger configurations use at most six tabs.

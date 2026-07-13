@@ -80,7 +80,8 @@ const STATUS_LABELS = Object.freeze({
 const statusText = (current) => {
   if (!current) return "未扫描";
   const pieces = [STATUS_LABELS[current.status] ?? current.status];
-  if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
+  if (current.workerSlotId?.startsWith("HOT-")) pieces.push(`前台页 ${current.workerSlotId.slice(4)}`);
+  else if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
   if (current.actionType) pieces.push(current.actionType);
   if (Number.isFinite(current.attempts) && current.attempts > 0) pieces.push(`尝试 ${current.attempts}`);
   if (current.reason && current.reason !== STATUS_LABELS[current.status]) pieces.push(current.reason);

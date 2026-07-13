@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.2.0
+// @version      1.2.1
 // @description  BNBU MIS 可视化自动选课与轮候助手，支持北京时间预约和即时启动
 // @author       Yang1107-wzy
 // @license      MIT
@@ -26,17 +26,15 @@
 (() => {
   // src/action_queue.js
   var entryKey = (target2, action) => `${target2.id ?? `${target2.courseCode}:${target2.section}`}:${action}`;
-  var enqueueCandidates = (queue = [], candidates = [], workerId, observedAt = Date.now()) => {
-    const known = new Set(queue.map((item) => item.key));
+  var enqueueCandidates = (queue = [], candidates = [], workerId, observedAt = Date.now(), priority = 0) => {
     const next = [...queue];
     for (const candidate of candidates) {
       const key = entryKey(candidate.target, candidate.decision.action);
-      if (known.has(key)) continue;
       const action = candidate.decision.action === "SELECT" ? candidate.row?.selectAction : candidate.row?.joinWaitingAction;
-      known.add(key);
-      next.push({
+      const entry = {
         key,
         workerId,
+        priority,
         targetId: candidate.target.id ?? `${candidate.target.courseCode}:${candidate.target.section}`,
         courseCode: candidate.target.courseCode,
         section: candidate.target.section,
@@ -44,9 +42,15 @@
         functionName: action?.functionName ?? null,
         argument: action?.argument ?? null,
         observedAt
-      });
+      };
+      const existingIndex = next.findIndex((item) => item.key === key);
+      if (existingIndex >= 0) {
+        if (priority > (next[existingIndex].priority ?? 0)) next[existingIndex] = entry;
+        continue;
+      }
+      next.push(entry);
     }
-    return next;
+    return next.sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0) || left.observedAt - right.observedAt);
   };
   var actionSignatureMatches = (queued, evaluation) => {
     const action = evaluation?.decision?.action === "SELECT" ? evaluation.row?.selectAction : evaluation?.row?.joinWaitingAction;
@@ -280,20 +284,36 @@
       error: null
     };
   };
-  var syncServerClock = async ({ fetchFn, url, now = Date.now }) => {
+  var syncServerClock = async ({
+    fetchFn,
+    url,
+    now = Date.now,
+    timeoutMs = 1e3,
+    setTimeoutFn = globalThis.setTimeout,
+    clearTimeoutFn = globalThis.clearTimeout
+  }) => {
     const sentAt = now();
+    const timeoutToken = Symbol("clock-sync-timeout");
+    let timeoutId = null;
     try {
-      const response = await fetchFn(url, {
+      const fetchPromise = fetchFn(url, {
         method: "HEAD",
         credentials: "same-origin",
         cache: "no-store",
         redirect: "follow"
       });
+      const timeoutPromise = new Promise((resolve) => {
+        timeoutId = setTimeoutFn(() => resolve(timeoutToken), timeoutMs);
+      });
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      if (response === timeoutToken) return localFallback(now(), "clock-sync-timeout");
       const receivedAt = now();
       const result = estimateClockSync({ serverDate: response?.headers?.get?.("Date"), sentAt, receivedAt });
       return result.source === "BNBU_SERVER" ? result : localFallback(receivedAt, "clock-sync-invalid-date");
     } catch {
       return localFallback(now(), "clock-sync-fetch-failed");
+    } finally {
+      if (timeoutId !== null) clearTimeoutFn(timeoutId);
     }
   };
   var correctedNow = (localNow, sync) => localNow + (Number.isFinite(sync?.offsetMs) ? sync.offsetMs : 0);
@@ -1045,18 +1065,20 @@
   var statusText = (current) => {
     if (!current) return "\u672A\u626B\u63CF";
     const pieces = [STATUS_LABELS[current.status] ?? current.status];
-    if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
+    if (current.workerSlotId?.startsWith("HOT-")) pieces.push(`\u524D\u53F0\u9875 ${current.workerSlotId.slice(4)}`);
+    else if (current.workerSlotId) pieces.push(`Worker ${current.workerSlotId}`);
     if (current.actionType) pieces.push(current.actionType);
     if (Number.isFinite(current.attempts) && current.attempts > 0) pieces.push(`\u5C1D\u8BD5 ${current.attempts}`);
     if (current.reason && current.reason !== STATUS_LABELS[current.status]) pieces.push(current.reason);
     if (current.scannedAt) pieces.push(current.scannedAt);
     return pieces.join(" \xB7 ");
   };
-  var createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false }) => {
+  var createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false, hotPage = false }) => {
     document.querySelector("#yang-worker-status")?.remove();
     const root = element(document, "aside");
     root.id = "yang-worker-status";
-    const title = element(document, "div", "ca-worker-title", observerOnly ? "Yang \xB7 \u975E Worker\uFF0C\u53EF\u5173\u95ED" : `Yang Worker \xB7 ${slot.slotId}`);
+    const titleText = observerOnly ? "Yang \xB7 \u975E Worker\uFF0C\u53EF\u5173\u95ED" : hotPage ? `Yang \u524D\u53F0\u4F18\u5148\u9875 \xB7 ${slot.category}` : `Yang Worker \xB7 ${slot.slotId}`;
+    const title = element(document, "div", "ca-worker-title", titleText);
     const targetRefs = /* @__PURE__ */ new Map();
     root.append(title);
     if (!observerOnly) {
@@ -1377,6 +1399,25 @@
       }
     };
   };
+  var reserveWorkerOpenings = (registry = {}, slots = [], tokenFactory, now = Date.now(), openingTtlMs = 6e4, heartbeatTtlMs = 6e4) => {
+    let nextRegistry = registry;
+    const reservations = [];
+    for (const slot of slots) {
+      const openingToken = tokenFactory(slot);
+      const result = reserveWorkerOpening(
+        nextRegistry,
+        slot,
+        openingToken,
+        now,
+        openingTtlMs,
+        heartbeatTtlMs
+      );
+      if (!result.reserved) continue;
+      nextRegistry = result.registry;
+      reservations.push({ slot, openingToken });
+    }
+    return { registry: nextRegistry, reservations };
+  };
   var claimWorkerSlot = (registry = {}, slot, workerId, openingToken, now = Date.now(), heartbeatTtlMs = 6e4) => {
     const current = registry?.[slot.slotId];
     const ownedByAnother = workerSlotIsHealthy(registry, slot.slotId, now, heartbeatTtlMs) && current.ownerId !== workerId;
@@ -1552,11 +1593,13 @@
     const workerMarker = urlWorkerMarker ?? savedWorkerAssignment?.marker ?? null;
     const workerDetailUrl = savedWorkerAssignment?.detailUrl ?? null;
     const isController = pageType === "OVERVIEW" && !workerMarker;
+    const isHotPage = pageType === "DETAIL" && !workerMarker;
     const workerSlot = workerMarker ? {
       slotId: workerMarker.slotId,
       category: workerMarker.category,
       targetIds: workerMarker.targetIds
     } : null;
+    let hotPageCategory = null;
     let workerActive = false;
     let panel = null;
     let workerPanel = null;
@@ -1618,11 +1661,15 @@
     };
     const correctedCurrentTime = (current) => correctedNow(now(), current.clockSync);
     const workerAssignments = () => buildWorkerAssignments(config.targets, config.maxWorkers);
-    const assignedTargets = () => {
-      if (!workerSlot || !workerActive) return [];
+    const assignedTargets = (category = hotPageCategory) => {
+      if (!workerActive) return [];
+      if (isHotPage) return category ? config.targets.filter((target2) => target2.category === category) : [];
+      if (!workerSlot) return [];
       const ids = new Set(workerSlot.targetIds);
       return config.targets.filter((target2) => ids.has(target2.id) && target2.category === workerSlot.category);
     };
+    const sourceCategory = () => workerSlot?.category ?? hotPageCategory;
+    const sourceSlotId = () => workerSlot?.slotId ?? (hotPageCategory ? `HOT-${hotPageCategory}` : "HOT");
     const readWorkerPool = async () => await workerPoolStorage.get() ?? {};
     const writeWorkerPool = async (registry) => {
       await workerPoolStorage.set(registry);
@@ -1647,6 +1694,7 @@
     };
     const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", claimCurrentWorkerUnlocked);
     const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
+      if (isHotPage) return workerActive;
       if (!workerActive || !workerSlot) return false;
       const heartbeat = heartbeatWorkerSlot(await readWorkerPool(), workerSlot.slotId, workerId, now(), lastScanAt);
       if (!heartbeat.updated) {
@@ -1705,36 +1753,49 @@
     const ensureWorkersUnlocked = async () => {
       if (!isController) return;
       const links = findCategoryDetailLinks(document, pageWindow.location);
-      for (const slot of workerAssignments()) {
-        if (!links[slot.category]) continue;
-        const openingToken = randomId(pageWindow);
-        const reservation = reserveWorkerOpening(
-          await readWorkerPool(),
-          slot,
-          openingToken,
-          now(),
-          3e4,
-          config.controllerHeartbeatTimeoutMs
-        );
-        if (!reservation.reserved) continue;
-        await writeWorkerPool(reservation.registry);
-        const verified = await readWorkerPool();
-        if (verified[slot.slotId]?.openingToken !== openingToken) continue;
+      const slots = workerAssignments().filter((slot) => links[slot.category]);
+      const reservation = reserveWorkerOpenings(
+        await readWorkerPool(),
+        slots,
+        () => randomId(pageWindow),
+        now(),
+        6e4,
+        config.controllerHeartbeatTimeoutMs
+      );
+      if (reservation.reservations.length > 0) await writeWorkerPool(reservation.registry);
+      for (const { slot, openingToken } of reservation.reservations) {
         gm2.openInTab?.(createWorkerUrl(links[slot.category], slot, openingToken), { active: false, insert: true, setParent: true });
       }
       await updatePanel();
     };
     const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
+    const ensureWorkersInBackground = () => {
+      void ensureWorkers().catch((error) => {
+        void log({ level: "warn", event: "worker-prewarm-failed", reason: error?.message ?? "worker-prewarm-failed" });
+      });
+    };
     const syncClock = async (force = false) => {
-      let current = await readState();
+      const current = await readState();
       const age = now() - (current.clockSync?.syncedAt ?? 0);
       if (!force && current.clockSync?.syncedAt && age >= 0 && age < config.clockSyncIntervalMs) return current.clockSync;
       const url = new URL("/mis/student/es/elective.do", pageWindow.location.origin).href;
-      const clockSync = await syncServerClock({ fetchFn: clockFetch, url, now });
-      current = { ...current, clockSync };
-      await publishControlState(current);
+      const clockSync = await syncServerClock({
+        fetchFn: clockFetch,
+        url,
+        now,
+        timeoutMs: 1e3,
+        setTimeoutFn: pageWindow.setTimeout.bind(pageWindow),
+        clearTimeoutFn: pageWindow.clearTimeout.bind(pageWindow)
+      });
+      const latest = await readState();
+      await publishControlState({ ...latest, clockSync });
       await updatePanel();
       return clockSync;
+    };
+    const syncClockInBackground = (force = false) => {
+      void syncClock(force).catch((error) => {
+        void log({ level: "warn", event: "clock-sync-failed", reason: error?.message ?? "clock-sync-failed" });
+      });
     };
     const executeNextInternal = async (evaluations) => {
       if (!workerActive) return null;
@@ -1762,7 +1823,7 @@
           reason: evaluation.decision.action === "JOIN_WAITLIST" ? "\u6B63\u5728\u63D0\u4EA4 Join Waiting" : "\u6B63\u5728\u63D0\u4EA4 Select",
           actionType: evaluation.decision.action,
           attempts: (prepared.courseStatuses[targetId2]?.attempts ?? 0) + 1,
-          workerSlotId: workerSlot.slotId,
+          workerSlotId: sourceSlotId(),
           scannedAt: formatBeijingDateTime(correctedCurrentTime(prepared)).slice(11)
         }
       };
@@ -1781,7 +1842,7 @@
             status: "FAILED",
             reason: result.reason,
             actionType: evaluation.decision.action,
-            workerSlotId: workerSlot.slotId,
+            workerSlotId: sourceSlotId(),
             retryAt: (failed.courseStatuses[targetId2]?.attempts ?? 1) >= 3 ? null : now() + 3e3,
             scannedAt: formatBeijingDateTime(correctedCurrentTime(failed)).slice(11)
           }
@@ -1824,9 +1885,10 @@
         }
         const rows = parseCourseRows(document);
         const category = localCategoryFromRows(rows);
+        if (isHotPage && category) hotPageCategory = category;
         let current = await readState();
-        const targets = assignedTargets();
-        if (pageType === "DETAIL" && category && category !== workerSlot.category) {
+        const targets = assignedTargets(category);
+        if (workerSlot && pageType === "DETAIL" && category && category !== workerSlot.category) {
           workerActive = false;
           clearReload();
           return { stopped: true, reason: "worker-category-mismatch" };
@@ -1860,17 +1922,17 @@
               reason: "\u63D0\u4EA4\u540E\u672A\u89C2\u5BDF\u5230 Selected/Waiting",
               actionType: verificationFailure.actionType,
               retryAt: attempts >= 3 ? null : now() + (attempts === 1 ? 15e3 : 3e4),
-              workerSlotId: workerSlot.slotId,
+              workerSlotId: sourceSlotId(),
               scannedAt
             };
           } else if (failureBlocked) {
-            statuses[target2.id] = { ...previous, workerSlotId: workerSlot.slotId, scannedAt };
+            statuses[target2.id] = { ...previous, workerSlotId: sourceSlotId(), scannedAt };
           } else if (pending.blocked.has(target2.id)) {
             statuses[target2.id] = {
               ...statuses[target2.id],
               status: "SUBMITTING",
               reason: "\u7B49\u5F85\u9875\u9762\u786E\u8BA4\u7ED3\u679C",
-              workerSlotId: workerSlot.slotId,
+              workerSlotId: sourceSlotId(),
               scannedAt
             };
           } else if (row) {
@@ -1879,7 +1941,7 @@
               ...statuses[target2.id],
               status: row.status,
               reason: displayReason(row, evaluation?.decision.reason, pageWindow),
-              workerSlotId: workerSlot.slotId,
+              workerSlotId: sourceSlotId(),
               scannedAt
             };
           } else if (category && target2.category === category) {
@@ -1887,7 +1949,7 @@
               ...statuses[target2.id],
               status: "NOT_FOUND",
               reason: "\u5F53\u524D\u9875\u9762\u672A\u627E\u5230",
-              workerSlotId: workerSlot.slotId,
+              workerSlotId: sourceSlotId(),
               scannedAt
             };
           }
@@ -1905,7 +1967,7 @@
             const status = statuses[candidate.target.id];
             return !(status?.status === "FAILED" && (status.attempts >= 3 || Number.isFinite(status.retryAt) && status.retryAt > now()));
           });
-          current.actionQueue = enqueueCandidates(current.actionQueue, candidates, workerId, now());
+          current.actionQueue = enqueueCandidates(current.actionQueue, candidates, workerId, now(), isHotPage ? 100 : 0);
         }
         await writeState(current);
         await heartbeatCurrentWorker(now());
@@ -1941,7 +2003,9 @@
       clearReload();
       if (!autoTimers || pageType !== "DETAIL" || !workerActive) return null;
       const current = await readState();
-      const targetIds = new Set(assignedTargets().map((target2) => target2.id));
+      const category = sourceCategory();
+      if (!category) return null;
+      const targetIds = new Set(assignedTargets(category).map((target2) => target2.id));
       const localSubmitting = Object.keys(current.pendingActions ?? {}).some((id) => targetIds.has(id)) || current.actionQueue?.some((item) => item.workerId === workerId);
       const localComplete = targetIds.size > 0 && [...targetIds].every((id) => current.courseStatuses?.[id]?.status === "REGISTERED");
       if (localComplete) return null;
@@ -1950,7 +2014,7 @@
         schedule: { phase: current.pollPhase },
         submitting: localSubmitting
       });
-      const delayMs = randomPollDelayMs({ phase, category: workerSlot.category, random: randomSource });
+      const delayMs = randomPollDelayMs({ phase, category, random: randomSource });
       if (!Number.isFinite(delayMs)) {
         if (current.nextReloadAt !== null) await writeState({ ...current, nextReloadAt: null, pollPhase: phase });
         return null;
@@ -1965,27 +2029,27 @@
           schedule: { phase: live.pollPhase },
           submitting: liveSubmitting
         });
-        if (randomPollDelayMs({ phase: livePhase, category: workerSlot.category, random: randomSource }) !== null) pageWindow.location.reload();
+        if (randomPollDelayMs({ phase: livePhase, category, random: randomSource }) !== null) pageWindow.location.reload();
       }, delayMs);
       return delayMs;
     };
     const tick = async () => {
       let current = await readState();
       if (current.mode === "SCHEDULED") {
-        if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) await syncClock(false);
+        if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) syncClockInBackground(false);
         current = await readState();
         const wasRunning = current.running;
         const next = applyScheduleTick(current, correctedCurrentTime(current));
         const changed = next.mode !== current.mode || next.running !== current.running || next.pollPhase !== current.pollPhase || next.activeWindowId !== current.activeWindowId || next.nextTransitionAt !== current.nextTransitionAt;
         if (changed) current = await publishControlState(next);
-        if (isController && current.mode !== "STOPPED") await ensureWorkers();
+        if (isController && current.mode !== "STOPPED") ensureWorkersInBackground();
         if (!wasRunning && current.running) {
           message = "\u9884\u7EA6\u7A97\u53E3\u5DF2\u5F00\u59CB\uFF0C\u6B63\u5728\u81EA\u52A8\u9009\u8BFE";
           await scan({ allowActions: true });
         }
         await scheduleReload();
       } else if (current.mode === "MANUAL") {
-        if (isController) await ensureWorkers();
+        if (isController) ensureWorkersInBackground();
         await scheduleReload();
       } else {
         clearReload();
@@ -1995,18 +2059,19 @@
     };
     const test = async () => {
       message = "Test\uFF1A\u53EA\u8BC6\u522B\uFF0C\u4E0D\u6267\u884C\u52A8\u4F5C";
-      await syncClock(false);
-      await ensureWorkers();
-      return scan({ allowActions: false });
+      const result = await scan({ allowActions: false });
+      syncClockInBackground(false);
+      ensureWorkersInBackground();
+      return result;
     };
     const startImmediate = async () => {
-      await syncClock(true);
       let current = startManualRuntime(await readState(), now());
       current = { ...current, targets: config.targets, selectionWindows: config.selectionWindows };
       await publishControlState(current);
       message = "\u624B\u52A8\u7ACB\u5373\u542F\u52A8\uFF1A\u6B63\u5728\u6781\u901F\u68C0\u6D4B\u5E76\u9009\u8BFE";
-      await ensureWorkers();
+      syncClockInBackground(true);
       const result = await scan({ allowActions: true });
+      ensureWorkersInBackground();
       await scheduleReload();
       await updatePanel();
       return result;
@@ -2021,13 +2086,13 @@
       }
       config = candidate;
       await configStorage.set(config);
-      await syncClock(true);
       const current = await readState();
       let scheduled = scheduleRuntime(current, config.selectionWindows, correctedCurrentTime(current));
       scheduled = { ...scheduled, targets: config.targets };
       await publishControlState(scheduled);
       message = scheduled.running ? "\u5F53\u524D\u7A97\u53E3\u5DF2\u5F00\u653E\uFF0C\u7ACB\u5373\u81EA\u52A8\u9009\u8BFE" : "\u9884\u7EA6\u6210\u529F\uFF0C\u7B49\u5F85\u4E0B\u4E00\u9009\u8BFE\u7A97\u53E3";
-      await ensureWorkers();
+      syncClockInBackground(true);
+      ensureWorkersInBackground();
       await scan({ allowActions: scheduled.running });
       await scheduleReload();
       await updatePanel();
@@ -2097,11 +2162,22 @@
       if (isController) {
         mountPanel();
       } else {
-        workerActive = await claimCurrentWorker();
+        if (isHotPage) {
+          hotPageCategory = localCategoryFromRows(parseCourseRows(document));
+          workerActive = true;
+        } else {
+          workerActive = await claimCurrentWorker();
+        }
+        const visibleSlot = workerSlot ?? {
+          slotId: hotPageCategory ? `HOT-${hotPageCategory}` : "HOT",
+          category: hotPageCategory ?? "ME",
+          targetIds: hotPageCategory ? config.targets.filter((target2) => target2.category === hotPageCategory).map((target2) => target2.id) : []
+        };
         workerPanel = createWorkerStatusBar(document, {
-          slot: workerSlot ?? { slotId: "OBSERVER", category: "ME", targetIds: [] },
+          slot: visibleSlot,
           targets: config.targets,
-          observerOnly: !workerActive
+          observerOnly: !workerActive,
+          hotPage: isHotPage
         });
       }
       pageWindow.addEventListener("pagehide", onPageHide);
@@ -2144,14 +2220,14 @@
         gm2.registerMenuCommand?.("\u663E\u793A/\u5C55\u5F00 Yang \u9762\u677F", () => panel?.expand());
         gm2.registerMenuCommand?.("\u91CD\u7F6E Yang \u9762\u677F\u4F4D\u7F6E", () => panel?.resetLayout());
       }
-      await syncClock(false);
       let current = await readState();
       if (current.mode === "SCHEDULED") {
         await tick();
         current = await readState();
       }
       await scan({ allowActions: current.running });
-      if (current.mode !== "STOPPED") await ensureWorkers();
+      syncClockInBackground(false);
+      if (current.mode !== "STOPPED") ensureWorkersInBackground();
       await scheduleReload();
       if (autoTimers) {
         heartbeatTimer = pageWindow.setInterval(async () => {

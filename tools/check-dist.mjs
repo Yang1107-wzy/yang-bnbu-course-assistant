@@ -11,7 +11,7 @@ const requiredMatches = [
 
 for (const match of requiredMatches) assert.ok(source.includes(match), `missing exact match: ${match}`);
 assert.ok(source.includes("// @name         Yang 抢课脚本"), "public script name missing");
-assert.ok(source.includes("// @version      1.2.0"), "dist version must be 1.2.0");
+assert.ok(source.includes("// @version      1.2.1"), "dist version must be 1.2.1");
 assert.ok(source.includes("// @author       Yang1107-wzy"), "public author missing");
 assert.ok(source.includes("// @license      MIT"), "MIT metadata missing");
 assert.ok(source.includes("Yang1107-wzy/yang-bnbu-course-assistant"), "GitHub project metadata missing");
@@ -36,6 +36,9 @@ assert.ok(source.includes("bnbu.courseAssistant.control.v3"), "authoritative v3 
 assert.ok(source.includes("bnbu.courseAssistant.panelLayout.v1"), "persistent panel layout key missing");
 assert.ok(source.includes("bnbu.courseAssistant.workerPool.v1"), "bounded worker pool key missing");
 assert.ok(source.includes("yang-worker"), "stable worker URL marker missing");
+assert.ok(source.includes("clock-sync-timeout"), "bounded BNBU clock calibration missing");
+assert.ok(source.includes("reserveWorkerOpenings"), "batch Worker reservation missing");
+assert.ok(source.includes("HOT-"), "manual foreground hot-page source missing");
 assert.ok(
   source.includes("\\u663E\\u793A/\\u5C55\\u5F00 Yang \\u9762\\u677F")
     && source.includes("\\u91CD\\u7F6E Yang \\u9762\\u677F\\u4F4D\\u7F6E"),

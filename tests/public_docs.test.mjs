@@ -41,3 +41,15 @@ test("GitHub Actions validates tests, release package and committed dist", async
   assert.match(workflow, /npm run package/);
   assert.match(workflow, /git diff --exit-code -- dist\/yang-bnbu-course-assistant\.user\.js/);
 });
+
+test("public documentation explains the v1.2.1 manual-first hot-page path", async () => {
+  const [readme, changelog, release] = await Promise.all([
+    read("README.md"),
+    read("CHANGELOG.md"),
+    read("docs/releases/v1.2.1.md")
+  ]);
+  for (const source of [readme, changelog, release]) {
+    assert.match(source, /前台优先|手动.*详情页|foreground Hot Page|manually opened/i);
+    assert.match(source, /不阻塞|异步|without waiting|background/i);
+  }
+});

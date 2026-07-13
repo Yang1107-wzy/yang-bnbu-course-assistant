@@ -135,6 +135,26 @@ test("renders worker assignment and precise target outcome metadata in controlle
   assert.match(card.textContent, /10:00:01/);
 });
 
+test("controller cards label a manual hot-page source as foreground instead of Worker", () => {
+  const { panel } = setup();
+  panel.update({
+    mode: "MANUAL",
+    running: true,
+    error: false,
+    courseStatuses: {
+      "AI3133:1001": {
+        status: "SELECTABLE",
+        workerSlotId: "HOT-ME",
+        reason: "可直接选",
+        scannedAt: "10:00:00"
+      }
+    }
+  });
+  const card = panel.root.querySelector('[data-course-key="AI3133:1001"]');
+  assert.match(card.textContent, /前台页 ME/);
+  assert.doesNotMatch(card.textContent, /Worker HOT-ME/);
+});
+
 test("worker pages render only a read-only mini status bar", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const mini = createWorkerStatusBar(dom.window.document, {

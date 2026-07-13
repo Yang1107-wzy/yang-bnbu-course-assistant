@@ -1,4 +1,4 @@
-# Yang 抢课脚本 v1.2.0 使用与维护说明
+# Yang 抢课脚本 v1.2.1 使用与维护说明
 
 ## 模块
 
@@ -8,7 +8,7 @@
 | `src/clock_sync.js` | BNBU 同源 HTTP Date 中点校时与本机回退 |
 | `src/course_parser.js` | 精确解析课程、状态与动作入口 |
 | `src/decision_engine.js` | 为每个目标独立决定 Select、Join 或不动作 |
-| `src/action_queue.js` | 跨标签 FIFO、动作锁及 1.2 秒提交间隔 |
+| `src/action_queue.js` | 跨标签优先 FIFO、动作锁及 250 ms 提交间隔 |
 | `src/action_executor.js` | 重验目标/函数并调用 MIS 页面函数、接管一次 confirm |
 | `src/runtime_state.js` | v3 手动/预约模式、窗口切换、worker、队列和课程状态 |
 | `src/ui_panel.js` | Yang 品牌面板、双启动按钮、时间状态、课程与窗口编辑器 |
@@ -17,8 +17,8 @@
 
 ## 启动语义
 
-- `Test`：只识别，不执行。
-- `立即启动`：无视预约窗口，马上 MANUAL/RUNNING/BURST。
+- `Test`：先返回当前页面识别结果，后台异步预热缺失 Worker，不执行动作。
+- `立即启动`：无视预约窗口，先进入 MANUAL/RUNNING/BURST 并扫描当前页；校时和 Worker 创建不阻塞动作。
 - `预约启动`：保存窗口；窗口内马上 RUNNING，窗口外 SCHEDULED。
 - `Stop`/`Esc`：取消运行、预约、队列、锁和待验证动作。
 - `设置`：编辑目标与三个北京时间窗口，保存后自动 Stop。
@@ -33,7 +33,7 @@
 
 时间统一按 UTC+8 解析成 epoch。启动时及每五分钟通过当前 BNBU 同源选课页面的 HEAD/Date 校时；HTTP Date 秒级精度计入 UI 的估计误差。普通阶段每 3 秒刷新，开放前 30 秒至开放后 2 分钟每 1 秒刷新；发现操作入口后立即冻结该 Worker 的刷新。
 
-默认三门课程分别由三个专用 Worker 处理；目标更多时由最多 6 个 Worker 按类别均匀覆盖。多门同时可选时进入全局 FIFO，动作间隔至少 250 ms。
+手动打开的详情页作为前台优先页，一次扫描本类别所有目标；默认三门课程的三个专用 Worker 负责兜底。目标更多时由最多 6 个 Worker 按类别均匀覆盖。多门同时可选时进入全局优先 FIFO，动作间隔至少 250 ms。
 
 每次加载和 3 秒本地 heartbeat 都会重新评估时间，因此休眠后不依赖错过的旧 timer。SUBMITTING 时刷新暂停。最后窗口结束自动停止；所有目标 Registered 时提前停止。
 
