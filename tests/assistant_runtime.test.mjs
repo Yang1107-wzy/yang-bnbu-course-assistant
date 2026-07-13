@@ -287,18 +287,47 @@ test("Test never acts while immediate start calls the ready Select page function
   assert.equal((await runtime.getState()).pendingActions["DEMO1001:1001"].actionType, "SELECT");
 });
 
-test("an unmarked detail tab stays observer-only and never mounts the full controller", async () => {
+test("an unmarked running detail tab becomes the foreground hot page and executes immediately", async () => {
   const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
   const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
   let calls = 0;
-  dom.window.selectItem = () => { calls += 1; };
+  dom.window.selectItem = () => {
+    calls += 1;
+    return dom.window.confirm("Select Example Major Elective (1001), are you sure?");
+  };
   const now = parseBeijingDateTime("2026-07-20T10:00:00");
   const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "manual-tab", now: () => now, fetchFn: serverClock(() => now) });
   await runtime.initialize();
   await runtime.startImmediate();
-  assert.equal(calls, 0);
+  assert.equal(calls, 1);
   assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
-  assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /非 Worker/);
+  assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /前台优先页/);
+});
+
+test("an unmarked stopped detail tab identifies targets but never executes", async () => {
+  const dom = await fixture("selectable.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR) });
+  let calls = 0;
+  dom.window.selectItem = () => { calls += 1; };
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "manual-tab", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  assert.equal(calls, 0);
+  assert.equal((await runtime.getState()).courseStatuses["DEMO1001:1001"].status, "SELECTABLE");
+  assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /前台优先页/);
+});
+
+test("one unmarked ME hot page scans every configured ME target", async () => {
+  const dom = await fixture("hot_me_two_targets.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR, DEMO_TECH) });
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "manual-tab", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  const statuses = (await runtime.getState()).courseStatuses;
+  assert.equal(statuses["DEMO1001:1001"].status, "SELECTABLE");
+  assert.equal(statuses["DEMO2001:1001"].status, "WAITLIST_AVAILABLE");
+  assert.equal(statuses["DEMO1001:1001"].workerSlotId, "HOT-ME");
+  assert.equal(statuses["DEMO2001:1001"].workerSlotId, "HOT-ME");
 });
 
 test("a worker returning to the overview keeps its session assignment and verifies success", async () => {

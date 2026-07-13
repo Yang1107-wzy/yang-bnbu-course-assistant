@@ -88,11 +88,16 @@ const statusText = (current) => {
   return pieces.join(" · ");
 };
 
-export const createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false }) => {
+export const createWorkerStatusBar = (document, { slot, targets = [], observerOnly = false, hotPage = false }) => {
   document.querySelector("#yang-worker-status")?.remove();
   const root = element(document, "aside");
   root.id = "yang-worker-status";
-  const title = element(document, "div", "ca-worker-title", observerOnly ? "Yang · 非 Worker，可关闭" : `Yang Worker · ${slot.slotId}`);
+  const titleText = observerOnly
+    ? "Yang · 非 Worker，可关闭"
+    : hotPage
+      ? `Yang 前台优先页 · ${slot.category}`
+      : `Yang Worker · ${slot.slotId}`;
+  const title = element(document, "div", "ca-worker-title", titleText);
   const targetRefs = new Map();
   root.append(title);
   if (!observerOnly) {

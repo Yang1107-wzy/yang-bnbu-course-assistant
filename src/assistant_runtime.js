@@ -186,11 +186,13 @@ export const createAssistantRuntime = async ({
   const workerMarker = urlWorkerMarker ?? savedWorkerAssignment?.marker ?? null;
   const workerDetailUrl = savedWorkerAssignment?.detailUrl ?? null;
   const isController = pageType === "OVERVIEW" && !workerMarker;
+  const isHotPage = pageType === "DETAIL" && !workerMarker;
   const workerSlot = workerMarker ? {
     slotId: workerMarker.slotId,
     category: workerMarker.category,
     targetIds: workerMarker.targetIds
   } : null;
+  let hotPageCategory = null;
   let workerActive = false;
 
   let panel = null;
@@ -255,11 +257,15 @@ export const createAssistantRuntime = async ({
 
   const correctedCurrentTime = (current) => correctedNow(now(), current.clockSync);
   const workerAssignments = () => buildWorkerAssignments(config.targets, config.maxWorkers);
-  const assignedTargets = () => {
-    if (!workerSlot || !workerActive) return [];
+  const assignedTargets = (category = hotPageCategory) => {
+    if (!workerActive) return [];
+    if (isHotPage) return category ? config.targets.filter((target) => target.category === category) : [];
+    if (!workerSlot) return [];
     const ids = new Set(workerSlot.targetIds);
     return config.targets.filter((target) => ids.has(target.id) && target.category === workerSlot.category);
   };
+  const sourceCategory = () => workerSlot?.category ?? hotPageCategory;
+  const sourceSlotId = () => workerSlot?.slotId ?? (hotPageCategory ? `HOT-${hotPageCategory}` : "HOT");
 
   const readWorkerPool = async () => await workerPoolStorage.get() ?? {};
   const writeWorkerPool = async (registry) => {
@@ -289,6 +295,7 @@ export const createAssistantRuntime = async ({
   const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", claimCurrentWorkerUnlocked);
 
   const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
+    if (isHotPage) return workerActive;
     if (!workerActive || !workerSlot) return false;
     const heartbeat = heartbeatWorkerSlot(await readWorkerPool(), workerSlot.slotId, workerId, now(), lastScanAt);
     if (!heartbeat.updated) {
@@ -432,7 +439,7 @@ export const createAssistantRuntime = async ({
         reason: evaluation.decision.action === "JOIN_WAITLIST" ? "正在提交 Join Waiting" : "正在提交 Select",
         actionType: evaluation.decision.action,
         attempts: (prepared.courseStatuses[targetId]?.attempts ?? 0) + 1,
-        workerSlotId: workerSlot.slotId,
+        workerSlotId: sourceSlotId(),
         scannedAt: formatBeijingDateTime(correctedCurrentTime(prepared)).slice(11)
       }
     };
@@ -451,7 +458,7 @@ export const createAssistantRuntime = async ({
           status: "FAILED",
           reason: result.reason,
           actionType: evaluation.decision.action,
-          workerSlotId: workerSlot.slotId,
+          workerSlotId: sourceSlotId(),
           retryAt: (failed.courseStatuses[targetId]?.attempts ?? 1) >= 3 ? null : now() + 3000,
           scannedAt: formatBeijingDateTime(correctedCurrentTime(failed)).slice(11)
         }
@@ -496,9 +503,10 @@ export const createAssistantRuntime = async ({
       }
       const rows = parseCourseRows(document);
       const category = localCategoryFromRows(rows);
+      if (isHotPage && category) hotPageCategory = category;
       let current = await readState();
-      const targets = assignedTargets();
-      if (pageType === "DETAIL" && category && category !== workerSlot.category) {
+      const targets = assignedTargets(category);
+      if (workerSlot && pageType === "DETAIL" && category && category !== workerSlot.category) {
         workerActive = false;
         clearReload();
         return { stopped: true, reason: "worker-category-mismatch" };
@@ -535,17 +543,17 @@ export const createAssistantRuntime = async ({
             reason: "提交后未观察到 Selected/Waiting",
             actionType: verificationFailure.actionType,
             retryAt: attempts >= 3 ? null : now() + (attempts === 1 ? 15000 : 30000),
-            workerSlotId: workerSlot.slotId,
+            workerSlotId: sourceSlotId(),
             scannedAt
           };
         } else if (failureBlocked) {
-          statuses[target.id] = { ...previous, workerSlotId: workerSlot.slotId, scannedAt };
+          statuses[target.id] = { ...previous, workerSlotId: sourceSlotId(), scannedAt };
         } else if (pending.blocked.has(target.id)) {
           statuses[target.id] = {
             ...statuses[target.id],
             status: "SUBMITTING",
             reason: "等待页面确认结果",
-            workerSlotId: workerSlot.slotId,
+            workerSlotId: sourceSlotId(),
             scannedAt
           };
         } else if (row) {
@@ -554,7 +562,7 @@ export const createAssistantRuntime = async ({
             ...statuses[target.id],
             status: row.status,
             reason: displayReason(row, evaluation?.decision.reason, pageWindow),
-            workerSlotId: workerSlot.slotId,
+            workerSlotId: sourceSlotId(),
             scannedAt
           };
         } else if (category && target.category === category) {
@@ -562,7 +570,7 @@ export const createAssistantRuntime = async ({
             ...statuses[target.id],
             status: "NOT_FOUND",
             reason: "当前页面未找到",
-            workerSlotId: workerSlot.slotId,
+            workerSlotId: sourceSlotId(),
             scannedAt
           };
         }
@@ -621,7 +629,9 @@ export const createAssistantRuntime = async ({
     clearReload();
     if (!autoTimers || pageType !== "DETAIL" || !workerActive) return null;
     const current = await readState();
-    const targetIds = new Set(assignedTargets().map((target) => target.id));
+    const category = sourceCategory();
+    if (!category) return null;
+    const targetIds = new Set(assignedTargets(category).map((target) => target.id));
     const localSubmitting = Object.keys(current.pendingActions ?? {}).some((id) => targetIds.has(id))
       || current.actionQueue?.some((item) => item.workerId === workerId);
     const localComplete = targetIds.size > 0 && [...targetIds].every((id) => current.courseStatuses?.[id]?.status === "REGISTERED");
@@ -631,7 +641,7 @@ export const createAssistantRuntime = async ({
       schedule: { phase: current.pollPhase },
       submitting: localSubmitting
     });
-    const delayMs = randomPollDelayMs({ phase, category: workerSlot.category, random: randomSource });
+    const delayMs = randomPollDelayMs({ phase, category, random: randomSource });
     if (!Number.isFinite(delayMs)) {
       if (current.nextReloadAt !== null) await writeState({ ...current, nextReloadAt: null, pollPhase: phase });
       return null;
@@ -647,7 +657,7 @@ export const createAssistantRuntime = async ({
         schedule: { phase: live.pollPhase },
         submitting: liveSubmitting
       });
-      if (randomPollDelayMs({ phase: livePhase, category: workerSlot.category, random: randomSource }) !== null) pageWindow.location.reload();
+      if (randomPollDelayMs({ phase: livePhase, category, random: randomSource }) !== null) pageWindow.location.reload();
     }, delayMs);
     return delayMs;
   };
@@ -792,11 +802,22 @@ export const createAssistantRuntime = async ({
     if (isController) {
       mountPanel();
     } else {
-      workerActive = await claimCurrentWorker();
+      if (isHotPage) {
+        hotPageCategory = localCategoryFromRows(parseCourseRows(document));
+        workerActive = true;
+      } else {
+        workerActive = await claimCurrentWorker();
+      }
+      const visibleSlot = workerSlot ?? {
+        slotId: hotPageCategory ? `HOT-${hotPageCategory}` : "HOT",
+        category: hotPageCategory ?? "ME",
+        targetIds: hotPageCategory ? config.targets.filter((target) => target.category === hotPageCategory).map((target) => target.id) : []
+      };
       workerPanel = createWorkerStatusBar(document, {
-        slot: workerSlot ?? { slotId: "OBSERVER", category: "ME", targetIds: [] },
+        slot: visibleSlot,
         targets: config.targets,
-        observerOnly: !workerActive
+        observerOnly: !workerActive,
+        hotPage: isHotPage
       });
     }
     pageWindow.addEventListener("pagehide", onPageHide);

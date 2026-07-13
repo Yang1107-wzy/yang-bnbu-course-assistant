@@ -152,3 +152,16 @@ test("worker pages render only a read-only mini status bar", () => {
   assert.equal(mini.root.querySelector("button"), null);
   assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
 });
+
+test("a manually opened detail page renders a read-only foreground hot-page bar", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const mini = createWorkerStatusBar(dom.window.document, {
+    slot: { slotId: "HOT-ME", category: "ME", targetIds: ["AI3133:1001", "COMP4213:1001"] },
+    targets: createDefaultConfig().targets,
+    hotPage: true
+  });
+  assert.match(mini.root.textContent, /Yang 前台优先页 · ME/);
+  assert.match(mini.root.textContent, /AI3133/);
+  assert.match(mini.root.textContent, /COMP4213/);
+  assert.equal(mini.root.querySelector("button"), null);
+});
