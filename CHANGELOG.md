@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 - 2026-07-14
+
+- Replaced the previous permissive license with the source-available Yang Non-Commercial Educational License 1.0 (Yang-NCEL-1.0).
+- Added a mandatory first-run acknowledgement that keeps automatic actions stopped until the complete learning-use notice is read and accepted.
+- Added persistent non-commercial, non-production-use notices to the controller, collapsed panel tooltip and Worker status bars.
+- Documented that the project is unofficial, provides no course-result guarantee, and must be used in accordance with Chinese laws, school rules and system policies.
+
 ## 1.2.1 - 2026-07-13
 
 - Promoted manually opened ME/FE detail pages to foreground Hot Pages that scan every configured target in the visible category.
@@ -27,7 +34,7 @@
 
 ## 1.0.0 - 2026-07-13
 
-- Published the project as **Yang 抢课脚本** under the MIT License.
+- Published the first public version of **Yang 抢课脚本**.
 - Added public-safe DEMO targets, sanitized fixtures and a branded standalone userscript.
 - Added professional installation, usage, security and contribution documentation.
 - Added reproducible Release packaging with SHA-256 checksums.

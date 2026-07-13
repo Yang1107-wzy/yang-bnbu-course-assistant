@@ -22,12 +22,13 @@
   </main>
   <script type="module">
     import { createDefaultConfig } from "../src/config_manager.js";
-    import { createPanel, PANEL_CSS } from "../src/ui_panel.js";
+    import { createComplianceDialog, createPanel, PANEL_CSS } from "../src/ui_panel.js";
     const style = document.createElement("style");
     style.textContent = PANEL_CSS;
     document.head.append(style);
     const config = createDefaultConfig();
-    const panel = createPanel(document, { config, callbacks: {} });
+    const showComplianceNotice = (required = false) => createComplianceDialog(document, { required });
+    const panel = createPanel(document, { config, callbacks: { showComplianceNotice } });
     panel.update({
       mode: "SCHEDULED", running: false, error: false,
       beijingNowText: "2026-07-20 09:59:50",
@@ -44,6 +45,7 @@
     const previewMode = new URLSearchParams(window.location.search).get("mode");
     if (previewMode === "collapsed") panel.collapse();
     if (previewMode === "compact") panel.applyLayout({ left: 1020, top: 410, width: 320, height: 300, collapsed: false });
+    if (previewMode === "compliance") showComplianceNotice(true);
   </script>
 </body>
 </html>

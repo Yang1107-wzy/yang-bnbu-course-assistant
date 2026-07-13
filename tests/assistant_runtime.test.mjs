@@ -18,7 +18,15 @@ import { parseBeijingDateTime } from "../src/time_scheduler.js";
 import { createWorkerUrl, parseWorkerMarker } from "../src/worker_pool.js";
 
 const createGm = (seed = {}) => {
-  const values = new Map(Object.entries(seed));
+  const values = new Map(Object.entries({
+    "bnbu.courseAssistant.complianceAck.v1": {
+      licenseId: "Yang-NCEL-1.0",
+      noticeVersion: 1,
+      accepted: true,
+      acceptedAt: 1
+    },
+    ...seed
+  }));
   const opened = [];
   const listeners = new Map();
   const menus = new Map();
@@ -76,11 +84,62 @@ const DEMO_MAJOR = { courseCode: "DEMO1001", courseName: "Example Major Elective
 const DEMO_TECH = { courseCode: "DEMO2001", courseName: "Example Technology Course", section: "1001", category: "ME" };
 const DEMO_FREE = { courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE" };
 const WORKER_SESSION_KEY = "bnbu.courseAssistant.workerAssignment.v1";
+const COMPLIANCE_ACK_KEY = "bnbu.courseAssistant.complianceAck.v1";
+const VALID_COMPLIANCE_ACK = Object.freeze({
+  licenseId: "Yang-NCEL-1.0",
+  noticeVersion: 1,
+  accepted: true,
+  acceptedAt: 1
+});
 const detailUrl = (base, slotId, category, targetId) => createWorkerUrl(base, {
   slotId,
   category,
   targetIds: [targetId]
 }, `test-${slotId}`);
+
+test("first v1.2.2 load blocks automatic actions until the compliance notice is accepted", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const gm = createGm({
+    [CONTROL_KEY_V3]: { version: 3, mode: "MANUAL", running: true, generation: 7 }
+  });
+  gm.values.delete(COMPLIANCE_ACK_KEY);
+  const now = parseBeijingDateTime("2026-07-13T16:00:00");
+  const runtime = await createAssistantRuntime({
+    pageWindow: dom.window,
+    gm,
+    autoTimers: false,
+    tabId: "controller",
+    now: () => now,
+    fetchFn: serverClock(() => now)
+  });
+
+  await runtime.initialize();
+  assert.equal((await runtime.getState()).mode, "STOPPED");
+  assert.ok(dom.window.document.querySelector("#yang-compliance-dialog"));
+  assert.equal(await runtime.startImmediate(), false);
+  assert.equal(gm.opened.length, 0);
+
+  const dialog = dom.window.document.querySelector("#yang-compliance-dialog");
+  const scroll = dialog.querySelector("[data-compliance-scroll]");
+  Object.defineProperties(scroll, {
+    scrollHeight: { configurable: true, value: 300 },
+    clientHeight: { configurable: true, value: 100 }
+  });
+  scroll.scrollTop = 200;
+  scroll.dispatchEvent(new dom.window.Event("scroll"));
+  dialog.querySelector("[data-compliance-acceptance]").click();
+  dialog.querySelector("[data-compliance-accept]").click();
+  await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
+
+  assert.deepEqual(gm.values.get(COMPLIANCE_ACK_KEY), {
+    ...VALID_COMPLIANCE_ACK,
+    acceptedAt: now
+  });
+  assert.equal(dom.window.document.querySelector("#yang-compliance-dialog"), null);
+  await runtime.startImmediate();
+  assert.equal((await runtime.getState()).mode, "MANUAL");
+  runtime.destroy();
+});
 
 test("persists panel layout, restores it after remount and exposes recovery menus", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");

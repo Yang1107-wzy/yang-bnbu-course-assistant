@@ -15,22 +15,40 @@ test("README documents the public install and both start modes", async () => {
   assert.match(readme, /已加入轮候/);
   assert.match(readme, /已抢到/);
   assert.match(readme, /首次使用.*设置/s);
-  assert.match(readme, /未完成真实选课提交验收/);
+  assert.match(readme, /未在学校正式选课窗口执行真实提交验收/);
   assert.doesNotMatch(readme, /DEMO1001/);
 });
 
-test("public governance files define MIT, security and contribution policies", async () => {
+test("public governance files define the non-commercial learning license and compliance boundaries", async () => {
   const [license, security, contributing, issueTemplate] = await Promise.all([
     read("LICENSE"),
     read("SECURITY.md"),
     read("CONTRIBUTING.md"),
     read(".github/ISSUE_TEMPLATE/bug-report.yml")
   ]);
-  assert.match(license, /MIT License/);
+  assert.match(license, /Yang Non-Commercial Educational License 1\.0/);
+  assert.match(license, /Yang-NCEL-1\.0/);
   assert.match(license, /Copyright \(c\) 2026 Yang1107-wzy/);
+  assert.match(license, /commercial/i);
+  assert.match(license, /formal course selection/i);
+  assert.doesNotMatch(license, /^MIT License$/m);
   assert.match(security, /Security Advisories/);
+  assert.match(security, /仅供学习交流/);
+  assert.match(security, /中华人民共和国法律法规/);
   assert.match(contributing, /npm run check/);
+  assert.match(contributing, /Yang-NCEL-1\.0/);
   assert.match(issueTemplate, /Tampermonkey/);
+});
+
+test("README leads with the non-commercial and non-production-use disclaimer", async () => {
+  const readme = await read("README.md");
+  assert.match(readme, /Source Available.*Non-Commercial/i);
+  assert.match(readme, /仅供学习交流/);
+  assert.match(readme, /禁止商业使用/);
+  assert.match(readme, /不得用于学校正式选课/);
+  assert.match(readme, /中华人民共和国法律法规/);
+  assert.match(readme, /not an OSI-approved open source license/i);
+  assert.doesNotMatch(readme, /License: MIT/);
 });
 
 test("GitHub Actions validates tests, release package and committed dist", async () => {

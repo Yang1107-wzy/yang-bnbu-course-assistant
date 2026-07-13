@@ -2,19 +2,30 @@
 
 [![CI](https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Yang1107-wzy/yang-bnbu-course-assistant)](https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: Source Available / Non-Commercial](https://img.shields.io/badge/License-Source_Available_%7C_Non--Commercial-orange.svg)](./LICENSE)
+
+> [!CAUTION]
+> **仅供学习交流，禁止商业使用，不得用于学校正式选课、正式抢课、轮候或其他真实教务操作。使用者必须遵守中华人民共和国法律法规、网络安全与数据保护要求、学校规章及信息系统使用规定。** 本项目不是 BNBU 官方产品，不代表学校，不保证课程名额或操作结果。
+>
+> **Learning and controlled testing only. Commercial use and use for formal school course selection or other live academic-affairs operations are prohibited. Follow applicable Chinese laws, school rules, and system policies.**
 
 面向 BNBU MIS 的 Chrome + Tampermonkey 可视化选课与轮候助手。支持立即启动、北京时间预约、自动识别 Select、Select from Waiting 和 Join Waiting List。
 
-> **English:** A guarded, visual Tampermonkey userscript for BNBU MIS course selection and waiting-list actions. It works only in an already authenticated browser session and never handles credentials or CAPTCHA.
+> **English:** A source-available Tampermonkey learning project for controlled DOM and workflow research. It works only in an already authenticated browser session and never handles credentials or CAPTCHA.
 
 ![Yang 抢课脚本界面](./docs/ui-preview.png)
 
+首次运行会显示完整声明，确认前保持 `STOPPED`：
+
+![Yang 抢课脚本合规确认](./docs/ui-preview-compliance.png)
+
 ## 重要说明
 
-- 本项目不是 BNBU 官方产品，使用者必须自行遵守学校选课和系统使用规则。
+- 本项目仅供个人学习、技术交流、教学演示和受控环境研究；禁止商业使用和收费服务。
+- 不得用于学校正式选课、正式抢课、轮候或其他真实教务提交。
+- 本项目不是 BNBU 官方产品，使用者必须自行遵守中华人民共和国法律法规、学校规章和系统使用政策。
 - 软件不保证课程名额或最终选课结果。正式页面可能随时变化，应先使用 `Test` 检查。
-- `v1.2.1` 已通过自动化 DOM、页面函数、Hot Page、Worker 租约和面板布局测试，但在 2026 年 7 月 20 日正式窗口前尚未完成真实选课提交验收。
+- `v1.2.2` 已通过自动化 DOM、页面函数、Hot Page、Worker 租约、合规确认和面板布局测试，但未在学校正式选课窗口执行真实提交验收。
 - 公开版默认预填 AI3133、COMP4213 和 EBIS3113；其他使用者安装后必须先在 `设置` 中替换为自己的目标。
 
 ## 功能
@@ -36,7 +47,7 @@
 
 1. 在 Chrome 安装并启用 [Tampermonkey](https://www.tampermonkey.net/)。
 2. 打开 [`yang-bnbu-course-assistant.user.js`](https://raw.githubusercontent.com/Yang1107-wzy/yang-bnbu-course-assistant/main/dist/yang-bnbu-course-assistant.user.js)。
-3. Tampermonkey 显示安装页面后，确认名称为“Yang 抢课脚本”、版本为 `1.2.1`，再点击安装。
+3. Tampermonkey 显示安装页面后，确认名称为“Yang 抢课脚本”、版本为 `1.2.2`、许可证为 `Yang-NCEL-1.0`，再点击安装。
 
 ### 手动安装
 
@@ -47,10 +58,11 @@
 ## 首次使用
 
 1. 登录 [BNBU MIS](https://mis.bnbu.edu.cn/mis/login.jsp)，进入选课状态页。
-2. 打开面板的 `设置`，确认默认目标是否正是 AI3133 (1001)、COMP4213 (1001) 和 EBIS3113 (1002)。
-3. 如目标不同，逐门填写：课程代码、MIS 页面显示的完整名称、四位班号、类别 `ME` 或 `FE`。
-4. 保存后刷新页面，点击 `Test`。
-5. 可先手动打开 ME/FE 详情页；脚本会把它识别为前台优先页。点击 `Test` 核对目标后，再使用立即启动或预约启动。
+2. 完整阅读首次使用声明，滚动到底并勾选确认。确认前只允许 `Test` 和设置，不允许启动或自动动作。
+3. 打开面板的 `设置`，确认默认目标是否正是 AI3133 (1001)、COMP4213 (1001) 和 EBIS3113 (1002)。
+4. 如目标不同，逐门填写：课程代码、MIS 页面显示的完整名称、四位班号、类别 `ME` 或 `FE`。
+5. 保存后刷新页面，点击 `Test`。
+6. 可先手动打开 ME/FE 详情页；脚本会把它识别为前台优先页。点击 `Test` 核对目标。
 
 课程代码、完整名称和班号必须同时精确匹配。相似名称、重复行或未知函数一律不会执行。
 
@@ -113,6 +125,7 @@
 
 ## 安全边界
 
+- 仅供学习交流和受控环境测试；禁止商业使用及学校正式选课用途。
 - 不保存登录信息、Cookie、Token、姓名、学号或隐藏表单值。
 - 不自动登录、不处理验证码、不调用隐藏选课 API、不使用 `GM_xmlhttpRequest`。
 - 永不执行 Replace、Drop、Exit Waiting 或未知函数。
@@ -134,4 +147,6 @@ npm run package
 
 ## License
 
-[MIT](./LICENSE) © 2026 Yang1107-wzy
+[Yang Non-Commercial Educational License 1.0 (Yang-NCEL-1.0)](./LICENSE) © 2026 Yang1107-wzy
+
+这是自定义的源码可见、非商业许可证，允许在相同许可证和署名条件下进行非商业学习、修改和再分发。It is not an OSI-approved open source license. 本项目文档不构成法律意见。

@@ -21,7 +21,8 @@ test("renders compact time status and exactly two start paths", () => {
     "start-immediate",
     "start-scheduled",
     "stop",
-    "settings"
+    "settings",
+    "compliance-notice"
   ]);
   assert.match(root.textContent, /立即启动/);
   assert.match(root.textContent, /预约启动/);
@@ -30,6 +31,22 @@ test("renders compact time status and exactly two start paths", () => {
   assert.ok(root.querySelector('[data-field="next-window"]'));
   assert.ok(root.querySelector('[data-field="poll-phase"]'));
   assert.equal(root.querySelector('[data-field="poll-interval"]'), null);
+});
+
+test("keeps the non-commercial learning-use notice visible and reopens the full notice", () => {
+  const calls = [];
+  const { panel } = setup({ showComplianceNotice: () => calls.push("notice") });
+  assert.match(panel.root.textContent, /仅供学习交流/);
+  assert.match(panel.root.textContent, /禁止商业使用/);
+  assert.match(panel.root.textContent, /不得用于学校正式选课/);
+  assert.match(panel.root.textContent, /中国法律法规及学校规定/);
+  const footer = panel.root.querySelector("[data-compliance-footer]");
+  assert.ok(footer);
+  assert.equal(footer.parentElement, panel.root);
+  assert.notEqual(footer.parentElement, panel.root.querySelector("[data-panel-body]"));
+  panel.root.querySelector('[data-action="compliance-notice"]').click();
+  assert.deepEqual(calls, ["notice"]);
+  assert.match(panel.root.title, /仅供学习交流.*禁止商业使用.*不得用于学校正式选课/s);
 });
 
 test("exposes an independent draggable, resizable and collapsible panel shell", () => {
@@ -169,6 +186,7 @@ test("worker pages render only a read-only mini status bar", () => {
   assert.match(mini.root.textContent, /Yang Worker · ME-1/);
   assert.match(mini.root.textContent, /AI3133 \(1001\)/);
   assert.match(mini.root.textContent, /已抢到/);
+  assert.match(mini.root.textContent, /学习测试用途/);
   assert.equal(mini.root.querySelector("button"), null);
   assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
 });

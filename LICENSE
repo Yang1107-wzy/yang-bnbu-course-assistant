@@ -1,21 +1,95 @@
-MIT License
+Yang Non-Commercial Educational License 1.0 (Yang-NCEL-1.0)
 
 Copyright (c) 2026 Yang1107-wzy
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Purpose and definitions
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This license permits the Software to be used only for personal learning,
+technical exchange, teaching demonstrations, and research in controlled test
+environments (collectively, "Non-Commercial Educational Purposes").
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+"Commercial Use" includes selling, licensing for a fee, paid services,
+commercial deployment, advertising-supported use, integration into a
+commercial product, operating on behalf of another person for compensation,
+or any activity intended to obtain direct or indirect commercial benefit.
+
+"Formal School Operations" includes formal course selection, course grabbing,
+waiting-list enrollment, registration, or any other live academic-affairs
+submission performed against a school's production information system.
+
+2. Limited grant
+
+Subject to every condition in this license, the copyright holder grants you a
+revocable, worldwide, royalty-free, non-exclusive right to view, use, copy,
+and modify the Software solely for Non-Commercial Educational Purposes.
+
+You may redistribute the original Software or modified versions only when the
+redistribution is non-commercial and you:
+
+a. retain the copyright notice, this complete license, and all use notices;
+b. provide prominent attribution to Yang1107-wzy;
+c. license the redistributed Software under this same Yang-NCEL-1.0 license;
+d. identify material modifications; and
+e. do not imply endorsement by the copyright holder, BNBU, or any school.
+
+3. Prohibited uses
+
+You must not:
+
+a. make any Commercial Use of the Software;
+b. use the Software for Formal School Operations, including formal course
+   selection or waiting-list enrollment;
+c. provide course-grabbing, registration, or waiting-list services to others;
+d. bypass or attempt to bypass authentication, CAPTCHA, access controls, rate
+   limits, anti-automation measures, or security mechanisms;
+e. use the Software in violation of the laws and regulations of the People's
+   Republic of China, applicable data-protection or cybersecurity requirements,
+   school rules, or information-system policies; or
+f. remove, conceal, or misrepresent the license, authorship, or use notices.
+
+4. No official affiliation
+
+The Software is an independent learning project. It is not an official BNBU
+product, is not approved or endorsed by BNBU or any school, and must not be
+represented as official or certified.
+
+5. No trademark license
+
+This license does not grant permission to use any trademark, school name,
+logo, or brand except as factually necessary to describe compatibility and
+subject to applicable law and brand rules.
+
+6. Disclaimer and limitation of liability
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, RELIABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, COURSE AVAILABILITY, OR
+SUCCESSFUL OPERATION. THE SOFTWARE MAY FAIL, BECOME INCOMPATIBLE, OR PRODUCE
+UNINTENDED RESULTS.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL
+NOT BE LIABLE FOR ANY CLAIM, LOSS, PENALTY, DISCIPLINARY CONSEQUENCE, DATA LOSS,
+ACCOUNT RESTRICTION, COURSE RESULT, OR OTHER DAMAGE ARISING FROM THE SOFTWARE
+OR ITS USE, MODIFICATION, OR DISTRIBUTION.
+
+7. Responsibility and termination
+
+You are responsible for determining whether your conduct is lawful and
+permitted by the relevant school and system operator. Any use outside this
+license automatically terminates the rights granted above. Upon termination,
+you must stop using and distributing the Software and delete redistributed
+copies under your control, except where retention is required by law.
+
+8. Severability and no waiver
+
+If any provision is unenforceable, the remaining provisions remain effective
+to the maximum extent allowed by applicable law. A failure to enforce one
+provision is not a waiver of that provision or any other provision.
+
+This is a custom source-available, non-commercial license. It is not the MIT
+License and is not an OSI-approved open source license.
+
+中文提示：本软件仅供个人学习、技术交流、教学演示及受控环境研究；禁止商业
+使用，禁止用于学校正式选课、正式抢课、轮候或其他真实教务操作。使用者必须
+遵守中华人民共和国法律法规、网络安全与数据保护要求、学校规章及信息系统
+使用规定。完整授权条件以本许可证英文条款为准。

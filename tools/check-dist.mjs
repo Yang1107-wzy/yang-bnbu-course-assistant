@@ -11,9 +11,10 @@ const requiredMatches = [
 
 for (const match of requiredMatches) assert.ok(source.includes(match), `missing exact match: ${match}`);
 assert.ok(source.includes("// @name         Yang 抢课脚本"), "public script name missing");
-assert.ok(source.includes("// @version      1.2.1"), "dist version must be 1.2.1");
+assert.ok(source.includes("// @version      1.2.2"), "dist version must be 1.2.2");
 assert.ok(source.includes("// @author       Yang1107-wzy"), "public author missing");
-assert.ok(source.includes("// @license      MIT"), "MIT metadata missing");
+assert.ok(source.includes("// @license      Yang-NCEL-1.0"), "non-commercial license metadata missing");
+assert.ok(!source.includes("// @license      MIT"), "retired MIT metadata leaked into dist");
 assert.ok(source.includes("Yang1107-wzy/yang-bnbu-course-assistant"), "GitHub project metadata missing");
 assert.equal((source.match(/^\/\/ @match/gm) ?? []).length, 2, "dist must contain exactly two approved @match rules");
 const retiredHostname = ["mis", "uic", "edu", "cn"].join(".");
@@ -34,6 +35,9 @@ assert.ok(source.includes("bnbu.courseAssistant.state.v3"), "v3 runtime state ke
 assert.ok(source.includes("bnbu.courseAssistant.config.v3"), "v3 config key missing");
 assert.ok(source.includes("bnbu.courseAssistant.control.v3"), "authoritative v3 control key missing");
 assert.ok(source.includes("bnbu.courseAssistant.panelLayout.v1"), "persistent panel layout key missing");
+assert.ok(source.includes("bnbu.courseAssistant.complianceAck.v1"), "compliance acknowledgement key missing");
+assert.ok(source.includes("Yang-NCEL-1.0"), "compliance license id missing");
+assert.ok(source.includes("requireCompliance"), "automatic-action compliance gate missing");
 assert.ok(source.includes("bnbu.courseAssistant.workerPool.v1"), "bounded worker pool key missing");
 assert.ok(source.includes("yang-worker"), "stable worker URL marker missing");
 assert.ok(source.includes("clock-sync-timeout"), "bounded BNBU clock calibration missing");
@@ -60,6 +64,14 @@ assert.ok(!source.includes("category-credit-cap-unknown"), "credit availability 
 assert.ok(!source.includes("element.click()"), "failed DOM click execution path leaked into dist");
 assert.ok(!source.includes("武装全自动"), "old armed UI leaked into dist");
 assert.ok(source.includes("Yang 抢课脚本"), "branded panel title missing");
+for (const [plain, escaped] of [
+  ["仅供学习交流", "\\u4EC5\\u4F9B\\u5B66\\u4E60\\u4EA4\\u6D41"],
+  ["禁止商业使用", "\\u7981\\u6B62\\u5546\\u4E1A\\u4F7F\\u7528"],
+  ["不得用于学校正式选课", "\\u4E0D\\u5F97\\u7528\\u4E8E\\u5B66\\u6821\\u6B63\\u5F0F\\u9009\\u8BFE"],
+  ["中国法律法规及学校规定", "\\u4E2D\\u56FD\\u6CD5\\u5F8B\\u6CD5\\u89C4\\u53CA\\u5B66\\u6821\\u89C4\\u5B9A"]
+]) {
+  assert.ok(source.includes(plain) || source.includes(escaped), `compliance notice missing: ${plain}`);
+}
 assert.ok(source.includes("\\u795D\\u60A8\\u62A2\\u5230\\u5FC3\\u4EEA\\u8BFE\\u7A0B"), "course-selection blessing missing");
 for (const action of ["test", "start-immediate", "start-scheduled", "stop", "settings"]) {
   assert.ok(source.includes(action), `missing v3 UI action: ${action}`);

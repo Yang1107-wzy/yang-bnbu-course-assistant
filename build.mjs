@@ -4,10 +4,10 @@ import { build } from "esbuild";
 const metadata = `// ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.2.1
-// @description  BNBU MIS 可视化自动选课与轮候助手，支持北京时间预约和即时启动
+// @version      1.2.2
+// @description  仅供学习交流的 BNBU MIS 可视化研究助手；禁止商业使用和学校正式选课
 // @author       Yang1107-wzy
-// @license      MIT
+// @license      Yang-NCEL-1.0
 // @homepageURL  https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
 // @supportURL   https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/issues
 // @updateURL    https://raw.githubusercontent.com/Yang1107-wzy/yang-bnbu-course-assistant/main/dist/yang-bnbu-course-assistant.user.js

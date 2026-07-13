@@ -2,6 +2,11 @@ import { actionSignatureMatches, claimNextAction, enqueueCandidates, finishActio
 import { executePageAction } from "./action_executor.js";
 import { createKeyValueStorage } from "./browser_storage.js";
 import { clockSyncIsFresh, correctedNow, syncServerClock } from "./clock_sync.js";
+import {
+  COMPLIANCE_ACK_KEY,
+  createComplianceAcknowledgement,
+  isComplianceAcknowledged
+} from "./compliance.js";
 import { createDefaultConfig, migrateConfig, saveableConfig, validateConfig } from "./config_manager.js";
 import { detectPageType, findCategoryDetailLinks } from "./course_page_adapter.js";
 import { detectSessionExpired, findUniqueCourse, parseCourseRows } from "./course_parser.js";
@@ -25,7 +30,7 @@ import {
   pollPhaseFor,
   randomPollDelayMs
 } from "./time_scheduler.js";
-import { createPanel, createWorkerStatusBar, PANEL_CSS } from "./ui_panel.js";
+import { createComplianceDialog, createPanel, createWorkerStatusBar, PANEL_CSS } from "./ui_panel.js";
 import {
   buildWorkerAssignments,
   claimWorkerSlot,
@@ -129,11 +134,13 @@ export const createAssistantRuntime = async ({
   const stateStorage = buildStorage(STATE_KEY_V3, gm, null);
   const controlStorage = buildStorage(CONTROL_KEY_V3, gm, null);
   const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm, null);
+  const complianceStorage = buildStorage(COMPLIANCE_ACK_KEY, gm, null);
   const workerPoolStorage = buildStorage(WORKER_POOL_KEY, gm, {});
   const migrationStorage = buildStorage(MIGRATION_KEY_V12, gm, false);
   const logStorage = buildStorage(LOG_KEY_V3, gm, []);
   const logger = new AuditLogger(logStorage, 300);
   let panelLayout = await panelLayoutStorage.get();
+  let complianceAcknowledged = isComplianceAcknowledged(await complianceStorage.get());
 
   const storedConfig = await configStorage.get();
   const legacyConfig = storedConfig ? null : await legacyConfigStorage.get();
@@ -151,7 +158,6 @@ export const createAssistantRuntime = async ({
     await workerPoolStorage.set({});
     await migrationStorage.set(true);
   }
-
   let state = await stateStorage.get();
   if (state?.version !== 3) state = createRuntimeStateV3(now());
   let control = await controlStorage.get();
@@ -159,6 +165,10 @@ export const createAssistantRuntime = async ({
     control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
   }
   if (firstV12Run) {
+    state = stopRuntime(state, now());
+    control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
+  }
+  if (!complianceAcknowledged) {
     state = stopRuntime(state, now());
     control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
   }
@@ -197,6 +207,7 @@ export const createAssistantRuntime = async ({
 
   let panel = null;
   let workerPanel = null;
+  let complianceDialog = null;
   let scanRunning = false;
   let reloadTimer = null;
   let heartbeatTimer = null;
@@ -252,7 +263,37 @@ export const createAssistantRuntime = async ({
     ...entry
   });
   const notify = (title, text) => {
-    try { gm.notification?.({ title, text, timeout: 7000 }); } catch { /* optional */ }
+    try { gm.notification?.({ title: `[学习测试用途] ${title}`, text, timeout: 7000 }); } catch { /* optional */ }
+  };
+
+  const acceptCompliance = async () => {
+    const acknowledgement = createComplianceAcknowledgement(now());
+    await complianceStorage.set(acknowledgement);
+    complianceAcknowledged = true;
+    complianceDialog = null;
+    message = "已确认学习交流用途声明；当前仍为 STOPPED";
+    await updatePanel();
+    return acknowledgement;
+  };
+
+  const showComplianceNotice = () => {
+    complianceDialog?.destroy();
+    complianceDialog = createComplianceDialog(document, {
+      required: !complianceAcknowledged,
+      onAccept: acceptCompliance,
+      onClose: () => { complianceDialog = null; }
+    });
+    return complianceDialog;
+  };
+
+  const requireCompliance = async () => {
+    const stored = await complianceStorage.get();
+    complianceAcknowledged = isComplianceAcknowledged(stored);
+    if (complianceAcknowledged) return true;
+    message = "请先阅读并确认学习交流用途声明；自动动作保持停止";
+    showComplianceNotice();
+    await updatePanel();
+    return false;
   };
 
   const correctedCurrentTime = (current) => correctedNow(now(), current.clockSync);
@@ -363,7 +404,7 @@ export const createAssistantRuntime = async ({
   const localCategoryFromRows = (rows) => rows.find((row) => ["ME", "FE"].includes(row.category))?.category ?? null;
 
   const ensureWorkersUnlocked = async () => {
-    if (!isController) return;
+    if (!isController || !complianceAcknowledged) return;
     const links = findCategoryDetailLinks(document, pageWindow.location);
     const slots = workerAssignments().filter((slot) => links[slot.category]);
     const reservation = reserveWorkerOpenings(
@@ -413,7 +454,7 @@ export const createAssistantRuntime = async ({
   };
 
   const executeNextInternal = async (evaluations) => {
-    if (!workerActive) return null;
+    if (!workerActive || !complianceAcknowledged) return null;
     let current = await readState();
     if (!current.running) return null;
     const claim = claimNextAction(current, workerId, now(), config.actionSpacingMs);
@@ -481,7 +522,7 @@ export const createAssistantRuntime = async ({
   );
 
   const scheduleActionAttempt = (evaluations) => {
-    if (!autoTimers || !workerActive || actionAttemptTimer) return;
+    if (!autoTimers || !workerActive || !complianceAcknowledged || actionAttemptTimer) return;
     actionAttemptTimer = pageWindow.setTimeout(async () => {
       actionAttemptTimer = null;
       const current = await readState();
@@ -512,10 +553,11 @@ export const createAssistantRuntime = async ({
         clearReload();
         return { stopped: true, reason: "worker-category-mismatch" };
       }
+      const automationAllowed = Boolean(current.running && allowActions && complianceAcknowledged);
       const plan = planCourseScan({
         targets,
         rows,
-        context: { running: Boolean(current.running && allowActions), courseStatuses: {} }
+        context: { running: automationAllowed, courseStatuses: {} }
       });
 
       const observedStatuses = {};
@@ -585,7 +627,7 @@ export const createAssistantRuntime = async ({
         return plan;
       }
 
-      if (current.running && allowActions) {
+      if (automationAllowed) {
         const candidates = plan.candidates.filter((candidate) => {
           if (pending.blocked.has(candidate.target.id) || pendingFailures.has(candidate.target.id)) return false;
           const status = statuses[candidate.target.id];
@@ -596,7 +638,7 @@ export const createAssistantRuntime = async ({
       }
       await writeState(current);
       await heartbeatCurrentWorker(now());
-      if (current.running && allowActions) {
+      if (automationAllowed) {
         const result = await executeNextInternal(plan.evaluations);
         if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(plan.evaluations);
       }
@@ -628,7 +670,7 @@ export const createAssistantRuntime = async ({
 
   const scheduleReload = async () => {
     clearReload();
-    if (!autoTimers || pageType !== "DETAIL" || !workerActive) return null;
+    if (!autoTimers || pageType !== "DETAIL" || !workerActive || !complianceAcknowledged) return null;
     const current = await readState();
     const category = sourceCategory();
     if (!category) return null;
@@ -664,6 +706,12 @@ export const createAssistantRuntime = async ({
   };
 
   const tick = async () => {
+    if (!complianceAcknowledged) {
+      clearReload();
+      const current = await readState();
+      if (current.mode !== "STOPPED" || current.running) await publishControlState(stopRuntime(current, now()));
+      return readState();
+    }
     let current = await readState();
     if (current.mode === "SCHEDULED") {
       if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) syncClockInBackground(false);
@@ -701,6 +749,7 @@ export const createAssistantRuntime = async ({
   };
 
   const startImmediate = async () => {
+    if (!await requireCompliance()) return false;
     let current = startManualRuntime(await readState(), now());
     current = { ...current, targets: config.targets, selectionWindows: config.selectionWindows };
     await publishControlState(current);
@@ -714,6 +763,7 @@ export const createAssistantRuntime = async ({
   };
 
   const startScheduled = async (selectionWindows = config.selectionWindows) => {
+    if (!await requireCompliance()) return false;
     const candidate = saveableConfig({ ...config, selectionWindows });
     const validation = validateConfig(candidate);
     if (!validation.valid) {
@@ -794,7 +844,7 @@ export const createAssistantRuntime = async ({
     panel?.destroy();
     panel = createPanel(document, {
       config,
-      callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig },
+      callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig, showComplianceNotice },
       layout: { initial: panelLayout, onChange: savePanelLayout }
     });
   };
@@ -822,6 +872,7 @@ export const createAssistantRuntime = async ({
         hotPage: isHotPage
       });
     }
+    if (!complianceAcknowledged) showComplianceNotice();
     pageWindow.addEventListener("pagehide", onPageHide);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") void stop("Esc 已停止");
@@ -834,6 +885,10 @@ export const createAssistantRuntime = async ({
     controlStorage.listen((next, previous, remote) => {
       if (!next || next.version !== 3) return;
       void updatePanel();
+      if (!complianceAcknowledged && (next.running || next.mode === "SCHEDULED")) {
+        void stop("尚未确认学习交流用途声明");
+        return;
+      }
       if (remote && workerActive && (next.running || next.mode === "SCHEDULED") && previous?.generation !== next.generation) {
         void scan({ allowActions: next.running }).then(scheduleReload);
       }
@@ -842,6 +897,17 @@ export const createAssistantRuntime = async ({
     panelLayoutStorage.listen((next, _previous, remote) => {
       if (!remote || !next) return;
       if (panel?.applyLayout(next)) panelLayout = panel.getLayout();
+    });
+    complianceStorage.listen((next) => {
+      const accepted = isComplianceAcknowledged(next);
+      complianceAcknowledged = accepted;
+      if (accepted) {
+        complianceDialog?.destroy();
+        complianceDialog = null;
+        void updatePanel();
+      } else {
+        void stop("使用声明确认已失效").then(showComplianceNotice);
+      }
     });
     workerPoolStorage.listen((next, _previous, remote) => {
       if (!remote || !workerSlot || !workerActive) {
@@ -861,6 +927,7 @@ export const createAssistantRuntime = async ({
       gm.registerMenuCommand?.("MIS Stop", () => stop());
       gm.registerMenuCommand?.("显示/展开 Yang 面板", () => panel?.expand());
       gm.registerMenuCommand?.("重置 Yang 面板位置", () => panel?.resetLayout());
+      gm.registerMenuCommand?.("查看使用声明与许可证", () => showComplianceNotice());
     }
 
     let current = await readState();
@@ -921,6 +988,7 @@ export const createAssistantRuntime = async ({
       void flushPanelLayout();
       panel?.destroy();
       workerPanel?.destroy();
+      complianceDialog?.destroy();
     }
   };
 };

@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.2.1
-// @description  BNBU MIS 可视化自动选课与轮候助手，支持北京时间预约和即时启动
+// @version      1.2.2
+// @description  仅供学习交流的 BNBU MIS 可视化研究助手；禁止商业使用和学校正式选课
 // @author       Yang1107-wzy
-// @license      MIT
+// @license      Yang-NCEL-1.0
 // @homepageURL  https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
 // @supportURL   https://github.com/Yang1107-wzy/yang-bnbu-course-assistant/issues
 // @updateURL    https://raw.githubusercontent.com/Yang1107-wzy/yang-bnbu-course-assistant/main/dist/yang-bnbu-course-assistant.user.js
@@ -318,6 +318,30 @@
   };
   var correctedNow = (localNow, sync) => localNow + (Number.isFinite(sync?.offsetMs) ? sync.offsetMs : 0);
   var clockSyncIsFresh = (sync, localNow, maxAgeMs = 3e5) => sync?.source === "BNBU_SERVER" && Number.isFinite(sync.syncedAt) && Number.isFinite(localNow) && localNow - sync.syncedAt >= 0 && localNow - sync.syncedAt <= maxAgeMs;
+
+  // src/compliance.js
+  var COMPLIANCE_ACK_KEY = "bnbu.courseAssistant.complianceAck.v1";
+  var COMPLIANCE_LICENSE_ID = "Yang-NCEL-1.0";
+  var COMPLIANCE_NOTICE_VERSION = 1;
+  var COMPLIANCE_SHORT_NOTICE = "\u4EC5\u4F9B\u5B66\u4E60\u4EA4\u6D41\uFF5C\u7981\u6B62\u5546\u4E1A\u4F7F\u7528\uFF5C\u4E0D\u5F97\u7528\u4E8E\u5B66\u6821\u6B63\u5F0F\u9009\u8BFE\uFF5C\u8BF7\u9075\u5B88\u4E2D\u56FD\u6CD5\u5F8B\u6CD5\u89C4\u53CA\u5B66\u6821\u89C4\u5B9A";
+  var COMPLIANCE_NOTICE_ITEMS = Object.freeze([
+    "\u672C\u9879\u76EE\u4EC5\u4F9B\u4E2A\u4EBA\u5B66\u4E60\u3001\u6280\u672F\u4EA4\u6D41\u3001\u6559\u5B66\u6F14\u793A\u548C\u53D7\u63A7\u73AF\u5883\u7814\u7A76\u3002",
+    "\u7981\u6B62\u4EFB\u4F55\u5546\u4E1A\u7528\u9014\uFF0C\u5305\u62EC\u9500\u552E\u3001\u6536\u8D39\u670D\u52A1\u3001\u4EE3\u64CD\u4F5C\u3001\u5E7F\u544A\u83B7\u5229\u3001\u5546\u4E1A\u90E8\u7F72\u548C\u5546\u4E1A\u4EA7\u54C1\u96C6\u6210\u3002",
+    "\u4E0D\u5F97\u7528\u4E8E\u5B66\u6821\u6B63\u5F0F\u9009\u8BFE\u3001\u6B63\u5F0F\u62A2\u8BFE\u3001\u8F6E\u5019\u6216\u5176\u4ED6\u771F\u5B9E\u6559\u52A1\u63D0\u4EA4\u3002",
+    "\u4F7F\u7528\u8005\u5FC5\u987B\u9075\u5B88\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD\u6CD5\u5F8B\u6CD5\u89C4\u3001\u7F51\u7EDC\u5B89\u5168\u4E0E\u6570\u636E\u4FDD\u62A4\u8981\u6C42\uFF0C\u4EE5\u53CA\u5B66\u6821\u89C4\u7AE0\u548C\u4FE1\u606F\u7CFB\u7EDF\u4F7F\u7528\u89C4\u5B9A\u3002",
+    "\u4E0D\u5F97\u7ED5\u8FC7\u9A8C\u8BC1\u7801\u3001\u8BBF\u95EE\u63A7\u5236\u3001\u9650\u6D41\u3001\u53CD\u81EA\u52A8\u5316\u673A\u5236\u6216\u5B66\u6821\u5B89\u5168\u63AA\u65BD\u3002",
+    "\u672C\u9879\u76EE\u4E0D\u662F BNBU \u5B98\u65B9\u4EA7\u54C1\uFF0C\u4E0D\u4EE3\u8868\u5B66\u6821\uFF0C\u4E0D\u4FDD\u8BC1\u8BFE\u7A0B\u540D\u989D\u3001\u64CD\u4F5C\u6210\u529F\u6216\u9875\u9762\u6301\u7EED\u517C\u5BB9\u3002",
+    "\u4F7F\u7528\u8005\u5E94\u5BF9\u81EA\u5DF1\u7684\u5B89\u88C5\u3001\u4FEE\u6539\u3001\u8FD0\u884C\u548C\u4F20\u64AD\u884C\u4E3A\u627F\u62C5\u8D23\u4EFB\uFF1B\u672C\u58F0\u660E\u4E0D\u6784\u6210\u6CD5\u5F8B\u610F\u89C1\u3002"
+  ]);
+  var isComplianceAcknowledged = (value) => Boolean(
+    value && value.licenseId === COMPLIANCE_LICENSE_ID && value.noticeVersion === COMPLIANCE_NOTICE_VERSION && value.accepted === true && Number.isFinite(value.acceptedAt) && value.acceptedAt > 0
+  );
+  var createComplianceAcknowledgement = (acceptedAt) => ({
+    licenseId: COMPLIANCE_LICENSE_ID,
+    noticeVersion: COMPLIANCE_NOTICE_VERSION,
+    accepted: true,
+    acceptedAt
+  });
 
   // src/time_scheduler.js
   var BEIJING_OFFSET_MS = 8 * 60 * 60 * 1e3;
@@ -1023,6 +1047,9 @@
 #bnbu-course-assistant .ca-course-status{color:#ffd666;margin-top:3px;word-break:break-word}
 #bnbu-course-assistant .ca-message{margin:9px 12px 12px;padding:8px;background:#25262a;border-radius:7px;color:#d7d7d7}
 #bnbu-course-assistant .ca-blessing{padding:0 12px 12px;text-align:center;color:#f7d774;font-weight:700}
+#bnbu-course-assistant .ca-compliance-footer{flex:none;padding:7px 11px 9px;border-top:1px solid #92400e;background:#292014}
+#bnbu-course-assistant .ca-compliance-warning{color:#fde68a;font-size:11px;font-weight:700;text-align:center;line-height:1.3}
+#bnbu-course-assistant .ca-compliance-link{display:block;margin:5px auto 0;padding:3px 8px;background:#78350f;color:#fef3c7;font-size:11px}
 #bnbu-course-assistant .ca-editor{padding:10px 12px;border-top:1px solid #4a4b50}
 #bnbu-course-assistant .ca-editor-title{font-weight:750;margin:4px 0 7px}
 #bnbu-course-assistant .ca-target-row{display:grid;grid-template-columns:82px 1fr 56px 50px 28px;gap:5px;margin-bottom:6px}
@@ -1032,20 +1059,97 @@
 #bnbu-course-assistant .ca-editor-actions{display:flex;gap:7px;margin-top:8px}
 #bnbu-course-assistant .ca-resize{position:absolute;right:2px;bottom:2px;width:18px;height:18px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 0 45%,#a8a8ad 46% 54%,transparent 55% 65%,#a8a8ad 66% 74%,transparent 75%);opacity:.8}
 #bnbu-course-assistant[data-collapsed="true"]{border-radius:22px}
-#bnbu-course-assistant[data-collapsed="true"] .ca-body,#bnbu-course-assistant[data-collapsed="true"] .ca-resize,#bnbu-course-assistant[data-collapsed="true"] .ca-title-full,#bnbu-course-assistant[data-collapsed="true"] .ca-state,#bnbu-course-assistant[data-collapsed="true"] .ca-collapse{display:none}
+#bnbu-course-assistant[data-collapsed="true"] .ca-body,#bnbu-course-assistant[data-collapsed="true"] .ca-compliance-footer,#bnbu-course-assistant[data-collapsed="true"] .ca-resize,#bnbu-course-assistant[data-collapsed="true"] .ca-title-full,#bnbu-course-assistant[data-collapsed="true"] .ca-state,#bnbu-course-assistant[data-collapsed="true"] .ca-collapse{display:none}
 #bnbu-course-assistant[data-collapsed="true"] .ca-title-short,#bnbu-course-assistant[data-collapsed="true"] .ca-state-short,#bnbu-course-assistant[data-collapsed="true"] .ca-expand{display:inline-flex}
 #bnbu-course-assistant[data-collapsed="true"] .ca-head{height:100%;box-sizing:border-box;padding:7px 9px;border:0}
 #bnbu-course-assistant .ca-state-short{width:9px;height:9px;border-radius:50%;background:#ffcc66}
 #bnbu-course-assistant[data-running="true"] .ca-state-short{background:#4ade80}
 #bnbu-course-assistant[data-mode="SCHEDULED"] .ca-state-short{background:#93c5fd}
 #bnbu-course-assistant[data-error="true"] .ca-state-short{background:#ff4d4f}
+#yang-compliance-dialog{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;background:rgba(0,0,0,.72);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#yang-compliance-dialog .ca-compliance-card{width:min(560px,100%);max-height:min(720px,calc(100vh - 36px));display:flex;flex-direction:column;overflow:hidden;border:2px solid #f59e0b;border-radius:14px;background:#1f2024;color:#f8fafc;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+#yang-compliance-dialog .ca-compliance-title{padding:15px 17px;border-bottom:1px solid #52525b;color:#fde68a;font-size:18px;font-weight:800}
+#yang-compliance-dialog .ca-compliance-scroll{margin:14px 16px 8px;padding:12px 14px;min-height:180px;max-height:44vh;overflow:auto;border:1px solid #52525b;border-radius:8px;background:#18181b}
+#yang-compliance-dialog .ca-compliance-scroll li{margin:0 0 10px}
+#yang-compliance-dialog .ca-compliance-license{color:#fbbf24;font-weight:700}
+#yang-compliance-dialog .ca-compliance-check{display:flex;align-items:flex-start;gap:8px;margin:8px 16px;color:#fef3c7;font-weight:700}
+#yang-compliance-dialog .ca-compliance-check input{margin-top:4px}
+#yang-compliance-dialog .ca-compliance-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
+#yang-compliance-dialog button{border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:750}
+#yang-compliance-dialog [data-compliance-accept]{background:#f59e0b;color:#1c1917}
+#yang-compliance-dialog [data-compliance-accept]:disabled{cursor:not-allowed;opacity:.45}
 #yang-worker-status{position:fixed;right:12px;top:12px;z-index:2147483646;max-width:290px;padding:8px 10px;border-radius:9px;background:rgba(30,30,32,.94);color:#f5f5f5;border:1px solid #58595f;box-shadow:0 5px 18px rgba(0,0,0,.28);font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:none}
 #yang-worker-status .ca-worker-title{font-weight:800;color:#93c5fd;margin-bottom:4px}
 #yang-worker-status .ca-worker-target{margin-top:3px}
 #yang-worker-status .ca-worker-state{color:#ffd666}
+#yang-worker-status .ca-worker-purpose{margin-top:4px;color:#fbbf24;font-weight:700}
 #yang-worker-status[data-complete="true"]{border-color:#4ade80}
 #yang-worker-status[data-error="true"]{border-color:#ff5a5f}
 `;
+  var createComplianceDialog = (document, { required = true, onAccept, onClose } = {}) => {
+    document.querySelector("#yang-compliance-dialog")?.remove();
+    const root = element(document, "div");
+    root.id = "yang-compliance-dialog";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-label", "Yang \u62A2\u8BFE\u811A\u672C\u4F7F\u7528\u58F0\u660E\u4E0E\u8BB8\u53EF\u8BC1");
+    const card = element(document, "section", "ca-compliance-card");
+    card.append(element(document, "div", "ca-compliance-title", "\u4F7F\u7528\u58F0\u660E\u4E0E\u8BB8\u53EF\u8BC1\uFF08\u8BF7\u5B8C\u6574\u9605\u8BFB\uFF09"));
+    const scroll = element(document, "div", "ca-compliance-scroll");
+    scroll.dataset.complianceScroll = "true";
+    scroll.tabIndex = 0;
+    scroll.append(element(document, "p", "ca-compliance-license", "Yang-NCEL-1.0\uFF5C\u4EC5\u4F9B\u5B66\u4E60\u4EA4\u6D41\uFF5C\u7981\u6B62\u5546\u4E1A\u4F7F\u7528"));
+    const list = element(document, "ol");
+    for (const item of COMPLIANCE_NOTICE_ITEMS) list.append(element(document, "li", "", item));
+    scroll.append(list, element(document, "p", "", "\u7EE7\u7EED\u4F7F\u7528\u5373\u8868\u793A\u4F60\u7406\u89E3\u672C\u9879\u76EE\u7684\u8BB8\u53EF\u9650\u5236\u3001\u5B89\u5168\u8FB9\u754C\u4E0E\u98CE\u9669\u3002"));
+    card.append(scroll);
+    let acceptance = null;
+    let accept = null;
+    let scrolledToEnd = !required;
+    const updateAccept = () => {
+      if (accept) accept.disabled = required && !(scrolledToEnd && acceptance.checked);
+    };
+    if (required) {
+      const check = element(document, "label", "ca-compliance-check");
+      acceptance = element(document, "input");
+      acceptance.type = "checkbox";
+      acceptance.dataset.complianceAcceptance = "true";
+      check.append(acceptance, element(document, "span", "", "\u6211\u5DF2\u9605\u8BFB\u3001\u7406\u89E3\u5E76\u540C\u610F\u4EE5\u4E0A\u9650\u5236"));
+      card.append(check);
+      scroll.addEventListener("scroll", () => {
+        scrolledToEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1;
+        updateAccept();
+      });
+      acceptance.addEventListener("change", updateAccept);
+    }
+    const actions = element(document, "div", "ca-compliance-actions");
+    if (!required) {
+      const close = element(document, "button", "", "\u5173\u95ED");
+      close.type = "button";
+      close.dataset.complianceClose = "true";
+      close.addEventListener("click", () => {
+        root.remove();
+        onClose?.();
+      });
+      actions.append(close);
+    } else {
+      accept = element(document, "button", "", "\u786E\u8BA4\u5E76\u7EE7\u7EED");
+      accept.type = "button";
+      accept.dataset.complianceAccept = "true";
+      accept.disabled = true;
+      accept.addEventListener("click", async () => {
+        if (accept.disabled) return;
+        accept.disabled = true;
+        await onAccept?.();
+        root.remove();
+      });
+      actions.append(accept);
+    }
+    card.append(actions);
+    root.append(card);
+    document.body.append(root);
+    return { root, destroy: () => root.remove() };
+  };
   var targetKey = (target2) => target2.id ?? `${target2.courseCode}:${target2.section}`;
   var STATUS_LABELS = Object.freeze({
     OPENING: "\u6B63\u5728\u6253\u5F00 Worker",
@@ -1080,7 +1184,7 @@
     const titleText = observerOnly ? "Yang \xB7 \u975E Worker\uFF0C\u53EF\u5173\u95ED" : hotPage ? `Yang \u524D\u53F0\u4F18\u5148\u9875 \xB7 ${slot.category}` : `Yang Worker \xB7 ${slot.slotId}`;
     const title = element(document, "div", "ca-worker-title", titleText);
     const targetRefs = /* @__PURE__ */ new Map();
-    root.append(title);
+    root.append(title, element(document, "div", "ca-worker-purpose", "\u5B66\u4E60\u6D4B\u8BD5\u7528\u9014"));
     if (!observerOnly) {
       for (const id of slot.targetIds) {
         const target2 = targets.find((item) => targetKey(item) === id);
@@ -1189,6 +1293,7 @@
     root.dataset.running = "false";
     root.dataset.mode = "STOPPED";
     root.dataset.error = "false";
+    root.title = COMPLIANCE_SHORT_NOTICE;
     const head = element(document, "div", "ca-head");
     const titles = element(document, "div", "ca-head-title");
     titles.append(
@@ -1270,11 +1375,17 @@
     editor.append(editorActions);
     body.append(editor);
     const message = element(document, "div", "ca-message", "\u70B9\u51FB Test \u68C0\u67E5\uFF0C\u6216\u9009\u62E9\u7ACB\u5373/\u9884\u7EA6\u542F\u52A8");
+    const complianceFooter = element(document, "div", "ca-compliance-footer");
+    complianceFooter.dataset.complianceFooter = "true";
+    const complianceButton = element(document, "button", "ca-compliance-link", "\u67E5\u770B\u4F7F\u7528\u58F0\u660E\u4E0E\u8BB8\u53EF\u8BC1");
+    complianceButton.type = "button";
+    complianceButton.dataset.action = "compliance-notice";
+    complianceFooter.append(element(document, "div", "ca-compliance-warning", COMPLIANCE_SHORT_NOTICE), complianceButton);
     body.append(message, element(document, "div", "ca-blessing", "\u795D\u60A8\u62A2\u5230\u5FC3\u4EEA\u8BFE\u7A0B"));
     const resizeHandle = element(document, "div", "ca-resize");
     resizeHandle.dataset.resizeHandle = "true";
     resizeHandle.title = "\u62D6\u52A8\u8C03\u6574\u9762\u677F\u5927\u5C0F";
-    root.append(body, resizeHandle);
+    root.append(body, complianceFooter, resizeHandle);
     document.body.append(root);
     const layoutController = createPanelLayoutController({
       pageWindow: document.defaultView,
@@ -1291,6 +1402,7 @@
     root.querySelector('[data-action="settings"]').addEventListener("click", () => {
       editor.hidden = !editor.hidden;
     });
+    complianceButton.addEventListener("click", () => callbacks.showComplianceNotice?.());
     collapse.addEventListener("click", () => layoutController.collapse());
     expand.addEventListener("click", () => layoutController.expand());
     return {
@@ -1540,11 +1652,13 @@
     const stateStorage = buildStorage(STATE_KEY_V3, gm2, null);
     const controlStorage = buildStorage(CONTROL_KEY_V3, gm2, null);
     const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm2, null);
+    const complianceStorage = buildStorage(COMPLIANCE_ACK_KEY, gm2, null);
     const workerPoolStorage = buildStorage(WORKER_POOL_KEY, gm2, {});
     const migrationStorage = buildStorage(MIGRATION_KEY_V12, gm2, false);
     const logStorage = buildStorage(LOG_KEY_V3, gm2, []);
     const logger = new AuditLogger(logStorage, 300);
     let panelLayout = await panelLayoutStorage.get();
+    let complianceAcknowledged = isComplianceAcknowledged(await complianceStorage.get());
     const storedConfig = await configStorage.get();
     const legacyConfig = storedConfig ? null : await legacyConfigStorage.get();
     let config = migrateConfig(storedConfig ?? legacyConfig ?? createDefaultConfig());
@@ -1567,6 +1681,10 @@
       control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
     }
     if (firstV12Run) {
+      state = stopRuntime(state, now());
+      control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
+    }
+    if (!complianceAcknowledged) {
       state = stopRuntime(state, now());
       control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
     }
@@ -1603,6 +1721,7 @@
     let workerActive = false;
     let panel = null;
     let workerPanel = null;
+    let complianceDialog = null;
     let scanRunning = false;
     let reloadTimer = null;
     let heartbeatTimer = null;
@@ -1655,9 +1774,38 @@
     });
     const notify = (title, text) => {
       try {
-        gm2.notification?.({ title, text, timeout: 7e3 });
+        gm2.notification?.({ title: `[\u5B66\u4E60\u6D4B\u8BD5\u7528\u9014] ${title}`, text, timeout: 7e3 });
       } catch {
       }
+    };
+    const acceptCompliance = async () => {
+      const acknowledgement = createComplianceAcknowledgement(now());
+      await complianceStorage.set(acknowledgement);
+      complianceAcknowledged = true;
+      complianceDialog = null;
+      message = "\u5DF2\u786E\u8BA4\u5B66\u4E60\u4EA4\u6D41\u7528\u9014\u58F0\u660E\uFF1B\u5F53\u524D\u4ECD\u4E3A STOPPED";
+      await updatePanel();
+      return acknowledgement;
+    };
+    const showComplianceNotice = () => {
+      complianceDialog?.destroy();
+      complianceDialog = createComplianceDialog(document, {
+        required: !complianceAcknowledged,
+        onAccept: acceptCompliance,
+        onClose: () => {
+          complianceDialog = null;
+        }
+      });
+      return complianceDialog;
+    };
+    const requireCompliance = async () => {
+      const stored = await complianceStorage.get();
+      complianceAcknowledged = isComplianceAcknowledged(stored);
+      if (complianceAcknowledged) return true;
+      message = "\u8BF7\u5148\u9605\u8BFB\u5E76\u786E\u8BA4\u5B66\u4E60\u4EA4\u6D41\u7528\u9014\u58F0\u660E\uFF1B\u81EA\u52A8\u52A8\u4F5C\u4FDD\u6301\u505C\u6B62";
+      showComplianceNotice();
+      await updatePanel();
+      return false;
     };
     const correctedCurrentTime = (current) => correctedNow(now(), current.clockSync);
     const workerAssignments = () => buildWorkerAssignments(config.targets, config.maxWorkers);
@@ -1751,7 +1899,7 @@
     };
     const localCategoryFromRows = (rows) => rows.find((row) => ["ME", "FE"].includes(row.category))?.category ?? null;
     const ensureWorkersUnlocked = async () => {
-      if (!isController) return;
+      if (!isController || !complianceAcknowledged) return;
       const links = findCategoryDetailLinks(document, pageWindow.location);
       const slots = workerAssignments().filter((slot) => links[slot.category]);
       const reservation = reserveWorkerOpenings(
@@ -1798,7 +1946,7 @@
       });
     };
     const executeNextInternal = async (evaluations) => {
-      if (!workerActive) return null;
+      if (!workerActive || !complianceAcknowledged) return null;
       let current = await readState();
       if (!current.running) return null;
       const claim = claimNextAction(current, workerId, now(), config.actionSpacingMs);
@@ -1863,7 +2011,7 @@
       () => executeNextInternal(evaluations)
     );
     const scheduleActionAttempt = (evaluations) => {
-      if (!autoTimers || !workerActive || actionAttemptTimer) return;
+      if (!autoTimers || !workerActive || !complianceAcknowledged || actionAttemptTimer) return;
       actionAttemptTimer = pageWindow.setTimeout(async () => {
         actionAttemptTimer = null;
         const current = await readState();
@@ -1893,10 +2041,11 @@
           clearReload();
           return { stopped: true, reason: "worker-category-mismatch" };
         }
+        const automationAllowed = Boolean(current.running && allowActions && complianceAcknowledged);
         const plan = planCourseScan({
           targets,
           rows,
-          context: { running: Boolean(current.running && allowActions), courseStatuses: {} }
+          context: { running: automationAllowed, courseStatuses: {} }
         });
         const observedStatuses = {};
         for (const target2 of targets) {
@@ -1961,7 +2110,7 @@
           await updatePanel();
           return plan;
         }
-        if (current.running && allowActions) {
+        if (automationAllowed) {
           const candidates = plan.candidates.filter((candidate) => {
             if (pending.blocked.has(candidate.target.id) || pendingFailures.has(candidate.target.id)) return false;
             const status = statuses[candidate.target.id];
@@ -1971,7 +2120,7 @@
         }
         await writeState(current);
         await heartbeatCurrentWorker(now());
-        if (current.running && allowActions) {
+        if (automationAllowed) {
           const result = await executeNextInternal(plan.evaluations);
           if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(plan.evaluations);
         }
@@ -2001,7 +2150,7 @@
     };
     const scheduleReload = async () => {
       clearReload();
-      if (!autoTimers || pageType !== "DETAIL" || !workerActive) return null;
+      if (!autoTimers || pageType !== "DETAIL" || !workerActive || !complianceAcknowledged) return null;
       const current = await readState();
       const category = sourceCategory();
       if (!category) return null;
@@ -2034,6 +2183,12 @@
       return delayMs;
     };
     const tick = async () => {
+      if (!complianceAcknowledged) {
+        clearReload();
+        const current2 = await readState();
+        if (current2.mode !== "STOPPED" || current2.running) await publishControlState(stopRuntime(current2, now()));
+        return readState();
+      }
       let current = await readState();
       if (current.mode === "SCHEDULED") {
         if (!clockSyncIsFresh(current.clockSync, now(), config.clockSyncIntervalMs)) syncClockInBackground(false);
@@ -2065,6 +2220,7 @@
       return result;
     };
     const startImmediate = async () => {
+      if (!await requireCompliance()) return false;
       let current = startManualRuntime(await readState(), now());
       current = { ...current, targets: config.targets, selectionWindows: config.selectionWindows };
       await publishControlState(current);
@@ -2077,6 +2233,7 @@
       return result;
     };
     const startScheduled = async (selectionWindows = config.selectionWindows) => {
+      if (!await requireCompliance()) return false;
       const candidate = saveableConfig({ ...config, selectionWindows });
       const validation = validateConfig(candidate);
       if (!validation.valid) {
@@ -2153,7 +2310,7 @@
       panel?.destroy();
       panel = createPanel(document, {
         config,
-        callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig },
+        callbacks: { test, startImmediate, startScheduled, stop: () => stop(), saveConfig, showComplianceNotice },
         layout: { initial: panelLayout, onChange: savePanelLayout }
       });
     };
@@ -2180,6 +2337,7 @@
           hotPage: isHotPage
         });
       }
+      if (!complianceAcknowledged) showComplianceNotice();
       pageWindow.addEventListener("pagehide", onPageHide);
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") void stop("Esc \u5DF2\u505C\u6B62");
@@ -2192,6 +2350,10 @@
       controlStorage.listen((next, previous, remote) => {
         if (!next || next.version !== 3) return;
         void updatePanel();
+        if (!complianceAcknowledged && (next.running || next.mode === "SCHEDULED")) {
+          void stop("\u5C1A\u672A\u786E\u8BA4\u5B66\u4E60\u4EA4\u6D41\u7528\u9014\u58F0\u660E");
+          return;
+        }
         if (remote && workerActive && (next.running || next.mode === "SCHEDULED") && previous?.generation !== next.generation) {
           void scan({ allowActions: next.running }).then(scheduleReload);
         }
@@ -2200,6 +2362,17 @@
       panelLayoutStorage.listen((next, _previous, remote) => {
         if (!remote || !next) return;
         if (panel?.applyLayout(next)) panelLayout = panel.getLayout();
+      });
+      complianceStorage.listen((next) => {
+        const accepted = isComplianceAcknowledged(next);
+        complianceAcknowledged = accepted;
+        if (accepted) {
+          complianceDialog?.destroy();
+          complianceDialog = null;
+          void updatePanel();
+        } else {
+          void stop("\u4F7F\u7528\u58F0\u660E\u786E\u8BA4\u5DF2\u5931\u6548").then(showComplianceNotice);
+        }
       });
       workerPoolStorage.listen((next, _previous, remote) => {
         if (!remote || !workerSlot || !workerActive) {
@@ -2219,6 +2392,7 @@
         gm2.registerMenuCommand?.("MIS Stop", () => stop());
         gm2.registerMenuCommand?.("\u663E\u793A/\u5C55\u5F00 Yang \u9762\u677F", () => panel?.expand());
         gm2.registerMenuCommand?.("\u91CD\u7F6E Yang \u9762\u677F\u4F4D\u7F6E", () => panel?.resetLayout());
+        gm2.registerMenuCommand?.("\u67E5\u770B\u4F7F\u7528\u58F0\u660E\u4E0E\u8BB8\u53EF\u8BC1", () => showComplianceNotice());
       }
       let current = await readState();
       if (current.mode === "SCHEDULED") {
@@ -2278,6 +2452,7 @@
         void flushPanelLayout();
         panel?.destroy();
         workerPanel?.destroy();
+        complianceDialog?.destroy();
       }
     };
   };
@@ -2301,7 +2476,7 @@
     window.console.error("[Yang Course Assistant] Initialization failed", error);
     try {
       GM_notification({
-        title: "Yang \u62A2\u8BFE\u811A\u672C\u542F\u52A8\u5931\u8D25",
+        title: "[\u5B66\u4E60\u6D4B\u8BD5\u7528\u9014] Yang \u62A2\u8BFE\u811A\u672C\u542F\u52A8\u5931\u8D25",
         text: "\u8BF7\u6253\u5F00\u63A7\u5236\u53F0\u67E5\u770B\u9519\u8BEF\uFF1B\u811A\u672C\u672A\u6267\u884C\u4EFB\u4F55\u9009\u8BFE\u52A8\u4F5C\u3002",
         timeout: 1e4
       });

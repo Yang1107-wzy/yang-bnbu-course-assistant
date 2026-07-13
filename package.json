@@ -1,10 +1,10 @@
 {
   "name": "yang-bnbu-course-assistant",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "Yang 抢课脚本：BNBU MIS 可视化选课与轮候 Tampermonkey 助手",
   "author": "Yang1107-wzy",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://github.com/Yang1107-wzy/yang-bnbu-course-assistant",
   "repository": {
     "type": "git",

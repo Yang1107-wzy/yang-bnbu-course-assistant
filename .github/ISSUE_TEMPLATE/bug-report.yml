@@ -13,6 +13,8 @@ body:
           required: true
         - label: 我确认内容不含姓名、学号、Cookie、Token 或完整登录页面
           required: true
+        - label: 我确认仅为学习交流或受控测试，不涉及商业用途或学校正式选课
+          required: true
   - type: input
     attributes:
       label: 脚本版本

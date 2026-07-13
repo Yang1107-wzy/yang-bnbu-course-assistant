@@ -19,7 +19,7 @@ void (async () => {
   window.console.error("[Yang Course Assistant] Initialization failed", error);
   try {
     GM_notification({
-      title: "Yang 抢课脚本启动失败",
+      title: "[学习测试用途] Yang 抢课脚本启动失败",
       text: "请打开控制台查看错误；脚本未执行任何选课动作。",
       timeout: 10000
     });
