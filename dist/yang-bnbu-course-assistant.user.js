@@ -452,8 +452,13 @@
     target("DEMO2001", "Example Technology Course", "1001", "ME"),
     target("DEMO3001", "Example Free Elective", "1002", "FE")
   ];
-  var DEFAULT_TARGETS = [
+  var LEGACY_PUBLIC_TARGETS = [
     target("AI3133", "Natural Language Processing", "1001", "ME"),
+    target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
+    target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
+  ];
+  var DEFAULT_TARGETS = [
+    target("COMP3073", "Introduction to Robotics", "1002", "ME"),
     target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
     target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
   ];
@@ -509,7 +514,10 @@
     const expected = normalizeTarget(right[index]);
     return normalized.courseCode === expected.courseCode && normalized.courseName === expected.courseName && normalized.section === expected.section && normalized.category === expected.category;
   });
-  var migrateConfig = (input) => cleanConfig(sameTargets(input?.targets, LEGACY_DEMO_TARGETS) ? { ...input, targets: DEFAULT_TARGETS } : input);
+  var migrateConfig = (input) => {
+    const migrateDefaults = sameTargets(input?.targets, LEGACY_DEMO_TARGETS) || sameTargets(input?.targets, LEGACY_PUBLIC_TARGETS);
+    return cleanConfig(migrateDefaults ? { ...input, targets: DEFAULT_TARGETS } : input);
+  };
   var validateConfig = (config) => {
     const errors = [];
     if (!config || typeof config !== "object") return { valid: false, errors: ["config-must-be-an-object"] };
