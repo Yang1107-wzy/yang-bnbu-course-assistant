@@ -6,6 +6,7 @@
 - Added a mandatory first-run acknowledgement that keeps automatic actions stopped until the complete learning-use notice is read and accepted.
 - Added persistent non-commercial, non-production-use notices to the controller, collapsed panel tooltip and Worker status bars.
 - Documented that the project is unofficial, provides no course-result guarantee, and must be used in accordance with Chinese laws, school rules and system policies.
+- Replaced the untouched AI3133 (1001) default target with COMP3073 (1002), while preserving COMP4213, EBIS3113 and every customized target list.
 
 ## 1.2.1 - 2026-07-13
 

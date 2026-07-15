@@ -12,7 +12,7 @@
 
 (() => {
   "use strict";
-  const targets = [["AI3133", "1001"], ["COMP4213", "1001"], ["EBIS3113", "1002"]];
+  const targets = [["COMP3073", "1002"], ["COMP4213", "1001"], ["EBIS3113", "1002"]];
   const safeText = (value) => String(value ?? "")
     .replace(/\b\d{9,12}\b/g, "[REDACTED_ID]")
     .replace(/(student\s*id|name)\s*:\s*[^|\n]+/gi, "$1:[REDACTED]")

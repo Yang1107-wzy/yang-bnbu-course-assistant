@@ -23,12 +23,12 @@ const target = (courseCode, section, category) => ({
 
 test("assigns the three public targets to three dedicated category workers", () => {
   const assignments = buildWorkerAssignments([
-    target("AI3133", "1001", "ME"),
+    target("COMP3073", "1002", "ME"),
     target("COMP4213", "1001", "ME"),
     target("EBIS3113", "1002", "FE")
   ], 6);
   assert.deepEqual(assignments.map(({ slotId, category, targetIds }) => ({ slotId, category, targetIds })), [
-    { slotId: "ME-1", category: "ME", targetIds: ["AI3133:1001"] },
+    { slotId: "ME-1", category: "ME", targetIds: ["COMP3073:1002"] },
     { slotId: "ME-2", category: "ME", targetIds: ["COMP4213:1001"] },
     { slotId: "FE-1", category: "FE", targetIds: ["EBIS3113:1002"] }
   ]);
@@ -54,7 +54,7 @@ test("encodes a stable worker assignment into the detail URL", () => {
 });
 
 test("opening and owner leases prevent duplicates until sixty-second heartbeat expiry", () => {
-  const slot = { slotId: "ME-1", category: "ME", targetIds: ["AI3133:1001"] };
+  const slot = { slotId: "ME-1", category: "ME", targetIds: ["COMP3073:1002"] };
   const first = reserveWorkerOpening({}, slot, "open-a", 1000, 30000, 60000);
   assert.equal(first.reserved, true);
   assert.equal(reserveWorkerOpening(first.registry, slot, "open-b", 2000, 30000, 60000).reserved, false);
@@ -74,7 +74,7 @@ test("opening and owner leases prevent duplicates until sixty-second heartbeat e
 test("batch opening reserves every missing slot in one registry update", () => {
   assert.equal(typeof workerPoolModule.reserveWorkerOpenings, "function");
   const slots = buildWorkerAssignments([
-    target("AI3133", "1001", "ME"),
+    target("COMP3073", "1002", "ME"),
     target("COMP4213", "1001", "ME"),
     target("EBIS3113", "1002", "FE")
   ], 6);

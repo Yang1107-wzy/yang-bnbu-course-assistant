@@ -135,7 +135,7 @@ test("renders worker assignment and precise target outcome metadata in controlle
     running: true,
     error: false,
     courseStatuses: {
-      "AI3133:1001": {
+      "COMP3073:1002": {
         status: "WAITING",
         workerSlotId: "ME-1",
         reason: "已加入轮候",
@@ -145,7 +145,7 @@ test("renders worker assignment and precise target outcome metadata in controlle
       }
     }
   });
-  const card = panel.root.querySelector('[data-course-key="AI3133:1001"]');
+  const card = panel.root.querySelector('[data-course-key="COMP3073:1002"]');
   assert.match(card.textContent, /已加入轮候/);
   assert.match(card.textContent, /ME-1/);
   assert.match(card.textContent, /JOIN_WAITLIST/);
@@ -159,7 +159,7 @@ test("controller cards label a manual hot-page source as foreground instead of W
     running: true,
     error: false,
     courseStatuses: {
-      "AI3133:1001": {
+      "COMP3073:1002": {
         status: "SELECTABLE",
         workerSlotId: "HOT-ME",
         reason: "可直接选",
@@ -167,7 +167,7 @@ test("controller cards label a manual hot-page source as foreground instead of W
       }
     }
   });
-  const card = panel.root.querySelector('[data-course-key="AI3133:1001"]');
+  const card = panel.root.querySelector('[data-course-key="COMP3073:1002"]');
   assert.match(card.textContent, /前台页 ME/);
   assert.doesNotMatch(card.textContent, /Worker HOT-ME/);
 });
@@ -175,16 +175,16 @@ test("controller cards label a manual hot-page source as foreground instead of W
 test("worker pages render only a read-only mini status bar", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const mini = createWorkerStatusBar(dom.window.document, {
-    slot: { slotId: "ME-1", category: "ME", targetIds: ["AI3133:1001"] },
+    slot: { slotId: "ME-1", category: "ME", targetIds: ["COMP3073:1002"] },
     targets: createDefaultConfig().targets
   });
   mini.update({
     courseStatuses: {
-      "AI3133:1001": { status: "REGISTERED", reason: "已抢到", scannedAt: "10:00:02" }
+      "COMP3073:1002": { status: "REGISTERED", reason: "已抢到", scannedAt: "10:00:02" }
     }
   });
   assert.match(mini.root.textContent, /Yang Worker · ME-1/);
-  assert.match(mini.root.textContent, /AI3133 \(1001\)/);
+  assert.match(mini.root.textContent, /COMP3073 \(1002\)/);
   assert.match(mini.root.textContent, /已抢到/);
   assert.match(mini.root.textContent, /学习测试用途/);
   assert.equal(mini.root.querySelector("button"), null);
@@ -194,12 +194,12 @@ test("worker pages render only a read-only mini status bar", () => {
 test("a manually opened detail page renders a read-only foreground hot-page bar", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const mini = createWorkerStatusBar(dom.window.document, {
-    slot: { slotId: "HOT-ME", category: "ME", targetIds: ["AI3133:1001", "COMP4213:1001"] },
+    slot: { slotId: "HOT-ME", category: "ME", targetIds: ["COMP3073:1002", "COMP4213:1001"] },
     targets: createDefaultConfig().targets,
     hotPage: true
   });
   assert.match(mini.root.textContent, /Yang 前台优先页 · ME/);
-  assert.match(mini.root.textContent, /AI3133/);
+  assert.match(mini.root.textContent, /COMP3073/);
   assert.match(mini.root.textContent, /COMP4213/);
   assert.equal(mini.root.querySelector("button"), null);
 });

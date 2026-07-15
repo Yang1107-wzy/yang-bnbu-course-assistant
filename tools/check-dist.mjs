@@ -19,9 +19,14 @@ assert.ok(source.includes("Yang1107-wzy/yang-bnbu-course-assistant"), "GitHub pr
 assert.equal((source.match(/^\/\/ @match/gm) ?? []).length, 2, "dist must contain exactly two approved @match rules");
 const retiredHostname = ["mis", "uic", "edu", "cn"].join(".");
 assert.ok(!source.includes(retiredHostname), "retired MIS hostname leaked into dist");
-for (const target of ["AI3133", "COMP4213", "EBIS3113"]) {
+for (const target of ["COMP3073", "COMP4213", "EBIS3113"]) {
   assert.ok(source.includes(target), `configured default target missing: ${target}`);
 }
+assert.match(
+  source,
+  /var DEFAULT_TARGETS = \[\s*target\("COMP3073", "Introduction to Robotics", "1002", "ME"\)/,
+  "COMP3073 must be the current first default target"
+);
 assert.ok(source.includes("// @grant        unsafeWindow"), "unsafeWindow grant is required for guarded native confirm");
 assert.ok(!source.includes("GM_xmlhttpRequest"), "network-bypass grant/API is forbidden");
 assert.ok(!/^\/\/ @match\s+\*:\/\//m.test(source), "broad wildcard match is forbidden");
