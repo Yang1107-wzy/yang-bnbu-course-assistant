@@ -16,8 +16,14 @@ const LEGACY_DEMO_TARGETS = [
   target("DEMO3001", "Example Free Elective", "1002", "FE")
 ];
 
-const DEFAULT_TARGETS = [
+const LEGACY_PUBLIC_TARGETS = [
   target("AI3133", "Natural Language Processing", "1001", "ME"),
+  target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
+  target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
+];
+
+const DEFAULT_TARGETS = [
+  target("COMP3073", "Introduction to Robotics", "1002", "ME"),
   target("COMP4213", "Wireless Communication and Mobile Computing", "1001", "ME"),
   target("EBIS3113", "Business Forecasting and Machine Learning", "1002", "FE")
 ];
@@ -85,9 +91,11 @@ const sameTargets = (left, right) => Array.isArray(left)
       && normalized.category === expected.category;
   });
 
-export const migrateConfig = (input) => cleanConfig(sameTargets(input?.targets, LEGACY_DEMO_TARGETS)
-  ? { ...input, targets: DEFAULT_TARGETS }
-  : input);
+export const migrateConfig = (input) => {
+  const migrateDefaults = sameTargets(input?.targets, LEGACY_DEMO_TARGETS)
+    || sameTargets(input?.targets, LEGACY_PUBLIC_TARGETS);
+  return cleanConfig(migrateDefaults ? { ...input, targets: DEFAULT_TARGETS } : input);
+};
 
 export const validateConfig = (config) => {
   const errors = [];

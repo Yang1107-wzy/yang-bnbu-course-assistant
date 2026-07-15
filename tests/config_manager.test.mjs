@@ -9,7 +9,7 @@ test("ships the three requested courses and the editable official windows", () =
   assert.equal(config.clockSyncIntervalMs, 300000);
   assert.equal("pollIntervalSeconds" in config, false);
   assert.deepEqual(config.targets.map(({ id, courseCode, section, category }) => ({ id, courseCode, section, category })), [
-    { id: "AI3133:1001", courseCode: "AI3133", section: "1001", category: "ME" },
+    { id: "COMP3073:1002", courseCode: "COMP3073", section: "1002", category: "ME" },
     { id: "COMP4213:1001", courseCode: "COMP4213", section: "1001", category: "ME" },
     { id: "EBIS3113:1002", courseCode: "EBIS3113", section: "1002", category: "FE" }
   ]);
@@ -29,12 +29,43 @@ test("replaces only the untouched public DEMO targets during migration", () => {
       { courseCode: "DEMO3001", courseName: "Example Free Elective", section: "1002", category: "FE" }
     ]
   };
-  assert.deepEqual(migrateConfig(demo).targets.map((item) => item.courseCode), ["AI3133", "COMP4213", "EBIS3113"]);
+  assert.deepEqual(migrateConfig(demo).targets.map((item) => item.courseCode), ["COMP3073", "COMP4213", "EBIS3113"]);
 
   const customized = { ...demo, targets: demo.targets.map((item) => ({ ...item })) };
   customized.targets[0].courseCode = "USER1001";
   customized.targets[0].courseName = "User Course";
   assert.deepEqual(migrateConfig(customized).targets.map((item) => item.courseCode), ["USER1001", "DEMO2001", "DEMO3001"]);
+});
+
+test("replaces only the untouched old public targets during migration", () => {
+  const oldPublicConfig = {
+    ...createDefaultConfig(),
+    targets: [
+      { courseCode: "AI3133", courseName: "Natural Language Processing", section: "1001", category: "ME" },
+      { courseCode: "COMP4213", courseName: "Wireless Communication and Mobile Computing", section: "1001", category: "ME" },
+      { courseCode: "EBIS3113", courseName: "Business Forecasting and Machine Learning", section: "1002", category: "FE" }
+    ]
+  };
+
+  assert.deepEqual(
+    migrateConfig(oldPublicConfig).targets.map(({ courseCode, courseName, section, category }) => ({ courseCode, courseName, section, category })),
+    [
+      { courseCode: "COMP3073", courseName: "Introduction to Robotics", section: "1002", category: "ME" },
+      { courseCode: "COMP4213", courseName: "Wireless Communication and Mobile Computing", section: "1001", category: "ME" },
+      { courseCode: "EBIS3113", courseName: "Business Forecasting and Machine Learning", section: "1002", category: "FE" }
+    ]
+  );
+
+  const customized = { ...oldPublicConfig, targets: oldPublicConfig.targets.map((item) => ({ ...item })) };
+  customized.targets[0].courseName = "My NLP Variant";
+  assert.deepEqual(
+    migrateConfig(customized).targets.map(({ courseCode, courseName, section }) => ({ courseCode, courseName, section })),
+    [
+      { courseCode: "AI3133", courseName: "My NLP Variant", section: "1001" },
+      { courseCode: "COMP4213", courseName: "Wireless Communication and Mobile Computing", section: "1001" },
+      { courseCode: "EBIS3113", courseName: "Business Forecasting and Machine Learning", section: "1002" }
+    ]
+  );
 });
 
 test("migrates v2 targets while dropping obsolete runtime limits", () => {

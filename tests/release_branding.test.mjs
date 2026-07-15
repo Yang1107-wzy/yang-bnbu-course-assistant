@@ -12,7 +12,7 @@ const repoFile = (path) => new URL(`../${path}`, import.meta.url);
 test("ships the three requested courses in the public default config", () => {
   const config = createDefaultConfig();
   assert.deepEqual(config.targets.map((target) => `${target.courseCode}:${target.section}:${target.category}`), [
-    "AI3133:1001:ME",
+    "COMP3073:1002:ME",
     "COMP4213:1001:ME",
     "EBIS3113:1002:FE"
   ]);
