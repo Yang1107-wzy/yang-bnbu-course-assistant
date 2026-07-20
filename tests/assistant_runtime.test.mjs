@@ -120,15 +120,10 @@ test("first v1.2.2 load blocks automatic actions until the compliance notice is 
   assert.equal(gm.opened.length, 0);
 
   const dialog = dom.window.document.querySelector("#yang-compliance-dialog");
-  const scroll = dialog.querySelector("[data-compliance-scroll]");
-  Object.defineProperties(scroll, {
-    scrollHeight: { configurable: true, value: 300 },
-    clientHeight: { configurable: true, value: 100 }
-  });
-  scroll.scrollTop = 200;
-  scroll.dispatchEvent(new dom.window.Event("scroll"));
   dialog.querySelector("[data-compliance-acceptance]").click();
-  dialog.querySelector("[data-compliance-accept]").click();
+  const accept = dialog.querySelector("[data-compliance-accept]");
+  assert.equal(accept.disabled, false);
+  accept.click();
   await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
 
   assert.deepEqual(gm.values.get(COMPLIANCE_ACK_KEY), {

@@ -98,9 +98,8 @@ export const createComplianceDialog = (document, { required = true, onAccept, on
 
   let acceptance = null;
   let accept = null;
-  let scrolledToEnd = !required;
   const updateAccept = () => {
-    if (accept) accept.disabled = required && !(scrolledToEnd && acceptance.checked);
+    if (accept) accept.disabled = required && !acceptance.checked;
   };
 
   if (required) {
@@ -110,10 +109,6 @@ export const createComplianceDialog = (document, { required = true, onAccept, on
     acceptance.dataset.complianceAcceptance = "true";
     check.append(acceptance, element(document, "span", "", "我已阅读、理解并同意以上限制"));
     card.append(check);
-    scroll.addEventListener("scroll", () => {
-      scrolledToEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1;
-      updateAccept();
-    });
     acceptance.addEventListener("change", updateAccept);
   }
 
