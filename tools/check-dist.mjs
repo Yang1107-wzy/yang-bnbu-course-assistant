@@ -11,7 +11,7 @@ const requiredMatches = [
 
 for (const match of requiredMatches) assert.ok(source.includes(match), `missing exact match: ${match}`);
 assert.ok(source.includes("// @name         Yang 抢课脚本"), "public script name missing");
-assert.ok(source.includes("// @version      1.2.2"), "dist version must be 1.2.2");
+assert.ok(source.includes("// @version      1.2.3"), "dist version must be 1.2.3");
 assert.ok(source.includes("// @author       Yang1107-wzy"), "public author missing");
 assert.ok(source.includes("// @license      Yang-NCEL-1.0"), "non-commercial license metadata missing");
 assert.ok(!source.includes("// @license      MIT"), "retired MIT metadata leaked into dist");
@@ -43,7 +43,7 @@ assert.ok(source.includes("bnbu.courseAssistant.panelLayout.v1"), "persistent pa
 assert.ok(source.includes("bnbu.courseAssistant.complianceAck.v1"), "compliance acknowledgement key missing");
 assert.ok(source.includes("Yang-NCEL-1.0"), "compliance license id missing");
 assert.ok(source.includes("requireCompliance"), "automatic-action compliance gate missing");
-assert.ok(source.includes("bnbu.courseAssistant.workerPool.v1"), "bounded worker pool key missing");
+assert.ok(source.includes("bnbu.courseAssistant.workerPool.v2"), "category worker pool key missing");
 assert.ok(source.includes("yang-worker"), "stable worker URL marker missing");
 assert.ok(source.includes("clock-sync-timeout"), "bounded BNBU clock calibration missing");
 assert.ok(source.includes("reserveWorkerOpenings"), "batch Worker reservation missing");
@@ -60,7 +60,9 @@ assert.ok(source.includes("2026-07-20T10:00:00") && source.includes("2026-07-22T
 assert.match(source, /NORMAL:\s*\[(?:3000|3e3),\s*(?:3000|3e3)\]/, "three-second normal polling missing");
 assert.match(source, /BURST:\s*\[(?:1000|1e3),\s*(?:1000|1e3)\]/, "one-second burst polling missing");
 assert.ok(source.includes("actionSpacingMs: 250"), "250ms action spacing missing");
-assert.ok(source.includes("maxWorkers: 6"), "six-worker bound missing");
+assert.ok(source.includes("maxWorkers: 2"), "two-category worker bound missing");
+assert.ok(source.includes("worker-open-timeout"), "bounded Worker opening failure missing");
+assert.ok(source.includes("categoryCoverageIsHealthy"), "category-level Worker coverage missing");
 assert.match(source, /controllerHeartbeatTimeoutMs:\s*(?:60000|6e4)/, "sixty-second worker heartbeat missing");
 assert.ok(!source.includes("dependency-not-occupied"), "old course dependency leaked into dist");
 assert.ok(!source.includes("waitlist-count-exceeds-limit"), "waitlist count gate leaked into dist");

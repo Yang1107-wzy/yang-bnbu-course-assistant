@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3 - 2026-07-20
+
+- Replaced per-target Worker tabs with one shared Worker per course category: ME-1 scans every ME target and FE-1 scans every FE target.
+- Registered manually opened ME/FE Hot Pages as healthy category coverage so the controller no longer opens duplicate fallback tabs.
+- Reduced unclaimed opening leases to 15 seconds and added visible 5/15/30/60-second retry backoff instead of indefinite OPENING states.
+- Removed target IDs from Worker URL markers and introduced a category-generation marker plus a clean v1.2.3 Worker-pool migration.
+- Preserved foreground-page priority, 250 ms global FIFO submission, automatic Join Waiting and Select from Waiting monitoring.
+
 ## 1.2.2 - 2026-07-14
 
 - Replaced the previous permissive license with the source-available Yang Non-Commercial Educational License 1.0 (Yang-NCEL-1.0).

@@ -33,9 +33,12 @@ import {
 import { createComplianceDialog, createPanel, createWorkerStatusBar, PANEL_CSS } from "./ui_panel.js";
 import {
   buildWorkerAssignments,
+  categoryCoverageIsHealthy,
   claimWorkerSlot,
   createWorkerUrl,
+  heartbeatHotPage,
   heartbeatWorkerSlot,
+  markWorkerPhase,
   parseWorkerMarker,
   reserveWorkerOpenings,
   workerSlotIsHealthy
@@ -46,8 +49,10 @@ export const STATE_KEY_V3 = "bnbu.courseAssistant.state.v3";
 export const CONFIG_KEY_V3 = "bnbu.courseAssistant.config.v3";
 export const CONTROL_KEY_V3 = "bnbu.courseAssistant.control.v3";
 export const PANEL_LAYOUT_KEY = "bnbu.courseAssistant.panelLayout.v1";
-export const WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v1";
+export const WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v2";
 export const MIGRATION_KEY_V12 = "bnbu.courseAssistant.migration.v1.2.0";
+export const MIGRATION_KEY_V123 = "bnbu.courseAssistant.migration.v1.2.3";
+const LEGACY_WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v1";
 const LOG_KEY_V3 = "bnbu.courseAssistant.logs.v3";
 const WORKER_ID_KEY_V3 = "bnbu.courseAssistant.workerId.v3";
 export const WORKER_SESSION_KEY = "bnbu.courseAssistant.workerAssignment.v1";
@@ -136,7 +141,9 @@ export const createAssistantRuntime = async ({
   const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm, null);
   const complianceStorage = buildStorage(COMPLIANCE_ACK_KEY, gm, null);
   const workerPoolStorage = buildStorage(WORKER_POOL_KEY, gm, {});
+  const legacyWorkerPoolStorage = buildStorage(LEGACY_WORKER_POOL_KEY, gm, {});
   const migrationStorage = buildStorage(MIGRATION_KEY_V12, gm, false);
+  const migrationV123Storage = buildStorage(MIGRATION_KEY_V123, gm, false);
   const logStorage = buildStorage(LOG_KEY_V3, gm, []);
   const logger = new AuditLogger(logStorage, 300);
   let panelLayout = await panelLayoutStorage.get();
@@ -152,11 +159,18 @@ export const createAssistantRuntime = async ({
     config = {
       ...config,
       actionSpacingMs: 250,
-      maxWorkers: 6,
+      maxWorkers: 2,
       controllerHeartbeatTimeoutMs: 60000
     };
     await workerPoolStorage.set({});
     await migrationStorage.set(true);
+  }
+  const firstV123Run = await migrationV123Storage.get() !== true;
+  if (firstV123Run) {
+    config = { ...config, maxWorkers: 2, controllerHeartbeatTimeoutMs: 60000 };
+    await workerPoolStorage.set({});
+    await legacyWorkerPoolStorage.delete();
+    await migrationV123Storage.set(true);
   }
   let state = await stateStorage.get();
   if (state?.version !== 3) state = createRuntimeStateV3(now());
@@ -164,7 +178,7 @@ export const createAssistantRuntime = async ({
   if (control?.version !== 3) {
     control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
   }
-  if (firstV12Run) {
+  if (firstV12Run || firstV123Run) {
     state = stopRuntime(state, now());
     control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
   }
@@ -197,13 +211,13 @@ export const createAssistantRuntime = async ({
   const workerDetailUrl = savedWorkerAssignment?.detailUrl ?? null;
   const isController = pageType === "OVERVIEW" && !workerMarker;
   const isHotPage = pageType === "DETAIL" && !workerMarker;
-  const workerSlot = workerMarker ? {
-    slotId: workerMarker.slotId,
-    category: workerMarker.category,
-    targetIds: workerMarker.targetIds
-  } : null;
+  const workerSlot = workerMarker ? buildWorkerAssignments(config.targets, config.maxWorkers)
+    .find((slot) => slot.slotId === workerMarker.slotId
+      && slot.category === workerMarker.category
+      && slot.generation === workerMarker.generation) ?? null : null;
   let hotPageCategory = null;
   let workerActive = false;
+  let lastWorkerClaimReason = null;
 
   let panel = null;
   let workerPanel = null;
@@ -315,11 +329,17 @@ export const createAssistantRuntime = async ({
   };
 
   const claimCurrentWorkerUnlocked = async () => {
-    if (!workerSlot || !workerMarker) return false;
+    if (!workerSlot || !workerMarker) {
+      lastWorkerClaimReason = "worker-assignment-invalid";
+      return false;
+    }
     const validAssignment = workerAssignments().find((slot) => slot.slotId === workerSlot.slotId
       && slot.category === workerSlot.category
-      && slot.targetIds.join(",") === workerSlot.targetIds.join(","));
-    if (!validAssignment) return false;
+      && slot.generation === workerMarker.generation);
+    if (!validAssignment) {
+      lastWorkerClaimReason = "worker-generation-mismatch";
+      return false;
+    }
     const claim = claimWorkerSlot(
       await readWorkerPool(),
       workerSlot,
@@ -328,15 +348,25 @@ export const createAssistantRuntime = async ({
       now(),
       config.controllerHeartbeatTimeoutMs
     );
-    if (!claim.claimed) return false;
+    if (!claim.claimed) {
+      lastWorkerClaimReason = claim.reason ?? "worker-claim-rejected";
+      return false;
+    }
     await writeWorkerPool(claim.registry);
     const verified = await readWorkerPool();
-    return verified[workerSlot.slotId]?.ownerId === workerId;
+    const claimed = verified[workerSlot.slotId]?.ownerId === workerId;
+    lastWorkerClaimReason = claimed ? null : "worker-claim-not-persisted";
+    return claimed;
   };
-  const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", claimCurrentWorkerUnlocked);
+  const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v2", claimCurrentWorkerUnlocked);
 
   const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
-    if (isHotPage) return workerActive;
+    if (isHotPage) {
+      if (!workerActive || !hotPageCategory) return false;
+      const heartbeat = heartbeatHotPage(await readWorkerPool(), hotPageCategory, workerId, now(), lastScanAt);
+      await writeWorkerPool(heartbeat.registry);
+      return heartbeat.updated;
+    }
     if (!workerActive || !workerSlot) return false;
     const heartbeat = heartbeatWorkerSlot(await readWorkerPool(), workerSlot.slotId, workerId, now(), lastScanAt);
     if (!heartbeat.updated) {
@@ -349,9 +379,17 @@ export const createAssistantRuntime = async ({
   };
   const heartbeatCurrentWorker = (lastScanAt) => withBrowserLock(
     pageWindow,
-    "yang-worker-pool-v1",
+    "yang-worker-pool-v2",
     () => heartbeatCurrentWorkerUnlocked(lastScanAt)
   );
+
+  const markCurrentWorkerPhase = async (phase, lastError = null) => {
+    if (!workerSlot || !workerActive) return false;
+    const changed = markWorkerPhase(await readWorkerPool(), workerSlot.slotId, workerId, phase, now(), lastError);
+    if (!changed.updated) return false;
+    await writeWorkerPool(changed.registry);
+    return true;
+  };
 
   const updatePanel = async () => {
     const current = await readState();
@@ -373,12 +411,26 @@ export const createAssistantRuntime = async ({
     for (const slot of workerAssignments()) {
       const poolEntry = workerPool[slot.slotId];
       const healthy = workerSlotIsHealthy(workerPool, slot.slotId, now(), config.controllerHeartbeatTimeoutMs);
+      const categoryHealthy = categoryCoverageIsHealthy(workerPool, slot.category, now(), config.controllerHeartbeatTimeoutMs);
       for (const id of slot.targetIds) {
         const previous = courseStatuses[id];
         if (["REGISTERED", "WAITING", "SUBMITTING", "FAILED"].includes(previous?.status)) {
-          courseStatuses[id] = { ...previous, workerSlotId: slot.slotId };
+          courseStatuses[id] = { ...previous, workerSlotId: previous.workerSlotId ?? slot.slotId };
         } else if (poolEntry?.phase === "OPENING" && poolEntry.openingUntil > now()) {
           courseStatuses[id] = { ...previous, status: "OPENING", reason: "正在打开 Worker", workerSlotId: slot.slotId };
+        } else if (poolEntry?.phase === "FAILED" && poolEntry.retryAt > now()) {
+          courseStatuses[id] = {
+            ...previous,
+            status: "WORKER_FAILED",
+            reason: `Worker 打开失败：${poolEntry.lastError ?? "unknown"}，等待重试`,
+            workerSlotId: slot.slotId
+          };
+        } else if (categoryHealthy) {
+          courseStatuses[id] = previous ?? {
+            status: "SCANNING",
+            reason: "类别页已在线，等待扫描",
+            workerSlotId: slot.slotId
+          };
         } else if (!healthy && current.mode !== "STOPPED") {
           courseStatuses[id] = { ...previous, status: "WORKER_OFFLINE", reason: "Worker 失联，等待恢复", workerSlotId: slot.slotId };
         } else if (previous) {
@@ -412,16 +464,16 @@ export const createAssistantRuntime = async ({
       slots,
       () => randomId(pageWindow),
       now(),
-      60000,
+      15000,
       config.controllerHeartbeatTimeoutMs
     );
-    if (reservation.reservations.length > 0) await writeWorkerPool(reservation.registry);
+    if (reservation.changed) await writeWorkerPool(reservation.registry);
     for (const { slot, openingToken } of reservation.reservations) {
       gm.openInTab?.(createWorkerUrl(links[slot.category], slot, openingToken), { active: false, insert: true, setParent: true });
     }
     await updatePanel();
   };
-  const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
+  const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v2", ensureWorkersUnlocked);
   const ensureWorkersInBackground = () => {
     void ensureWorkers().catch((error) => {
       void log({ level: "warn", event: "worker-prewarm-failed", reason: error?.message ?? "worker-prewarm-failed" });
@@ -487,8 +539,10 @@ export const createAssistantRuntime = async ({
     };
     const committed = await writeState(prepared);
     if (!committed.running) return null;
+    await markCurrentWorkerPhase("SUBMITTING");
     const result = executePageAction({ row: evaluation.row, target: evaluation.target, actionType: evaluation.decision.action, pageWindow });
     if (!result.ok) {
+      await markCurrentWorkerPhase("ONLINE", result.reason);
       const failed = await readState();
       const pendingActions = { ...failed.pendingActions };
       delete pendingActions[targetId];
@@ -549,6 +603,7 @@ export const createAssistantRuntime = async ({
       let current = await readState();
       const targets = assignedTargets(category);
       if (workerSlot && pageType === "DETAIL" && category && category !== workerSlot.category) {
+        await markCurrentWorkerPhase("FAILED", "worker-category-mismatch");
         workerActive = false;
         clearReload();
         return { stopped: true, reason: "worker-category-mismatch" };
@@ -643,7 +698,15 @@ export const createAssistantRuntime = async ({
         if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(plan.evaluations);
       }
       message = `已扫描 ${rows.length} 条课程行`;
-      await log({ level: "info", event: "scan", reason: message });
+      await log({
+        level: "info",
+        event: "scan",
+        category: sourceCategory(),
+        slotId: sourceSlotId(),
+        workerPhase: workerActive ? "ONLINE" : "FAILED",
+        pageType,
+        reason: message
+      });
       await updatePanel();
       if (autoTimers && pageType === "OVERVIEW" && workerDetailUrl && workerActive) {
         if (returnToDetailTimer) pageWindow.clearTimeout(returnToDetailTimer);
@@ -857,8 +920,22 @@ export const createAssistantRuntime = async ({
       if (isHotPage) {
         hotPageCategory = localCategoryFromRows(parseCourseRows(document));
         workerActive = true;
+        if (hotPageCategory) await heartbeatCurrentWorker(now());
       } else {
         workerActive = await claimCurrentWorker();
+        if (!workerActive) {
+          await log({
+            level: "error",
+            event: "worker-claim-failed",
+            category: workerMarker?.category,
+            slotId: workerMarker?.slotId,
+            workerPhase: "FAILED",
+            openingTokenMismatch: lastWorkerClaimReason === "opening-token-mismatch",
+            pageType,
+            failureStage: "worker-claim",
+            reason: lastWorkerClaimReason ?? "worker-claim-rejected"
+          });
+        }
       }
       const visibleSlot = workerSlot ?? {
         slotId: hotPageCategory ? `HOT-${hotPageCategory}` : "HOT",

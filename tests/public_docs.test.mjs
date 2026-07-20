@@ -10,12 +10,13 @@ test("README documents the public install and both start modes", async () => {
   assert.match(readme, /dist\/yang-bnbu-course-assistant\.user\.js/);
   assert.match(readme, /立即启动/);
   assert.match(readme, /预约启动/);
-  assert.match(readme, /三个专用 Worker/);
+  assert.match(readme, /ME-1.*FE-1/s);
+  assert.match(readme, /两个类别 Worker/);
   assert.match(readme, /250 ms/);
   assert.match(readme, /已加入轮候/);
   assert.match(readme, /已抢到/);
   assert.match(readme, /首次使用.*设置/s);
-  assert.match(readme, /未在学校正式选课窗口执行真实提交验收/);
+  assert.match(readme, /学校页面仍可能变化/);
   assert.match(readme, /COMP3073 \(1002\).*COMP4213 \(1001\).*EBIS3113 \(1002\)/s);
   assert.doesNotMatch(readme, /默认预填 AI3133/);
   assert.doesNotMatch(readme, /DEMO1001/);

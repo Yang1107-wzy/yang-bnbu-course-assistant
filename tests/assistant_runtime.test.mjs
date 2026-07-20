@@ -8,6 +8,7 @@ import {
   CONFIG_KEY_V3,
   CONTROL_KEY_V3,
   MIGRATION_KEY_V12,
+  MIGRATION_KEY_V123,
   PANEL_LAYOUT_KEY,
   STATE_KEY_V3,
   WORKER_POOL_KEY,
@@ -97,7 +98,7 @@ const detailUrl = (base, slotId, category, targetId) => createWorkerUrl(base, {
   targetIds: [targetId]
 }, `test-${slotId}`);
 
-test("first v1.2.2 load blocks automatic actions until the compliance notice is accepted", async () => {
+test("first load blocks automatic actions until the compliance notice is accepted", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
   const gm = createGm({
     [CONTROL_KEY_V3]: { version: 3, mode: "MANUAL", running: true, generation: 7 }
@@ -217,13 +218,14 @@ test("v1.2 migration keeps targets but replaces slow v1.1 tuning and stale worke
   const migrated = gm.values.get(CONFIG_KEY_V3);
   assert.equal(migrated.targets[0].courseCode, "DEMO1001");
   assert.equal(migrated.actionSpacingMs, 250);
-  assert.equal(migrated.maxWorkers, 6);
+  assert.equal(migrated.maxWorkers, 2);
   assert.equal(migrated.controllerHeartbeatTimeoutMs, 60000);
-  assert.deepEqual(gm.values.get("bnbu.courseAssistant.workerPool.v1"), {});
+  assert.equal(gm.values.get("bnbu.courseAssistant.workerPool.v1"), undefined);
+  assert.deepEqual(gm.values.get(WORKER_POOL_KEY), {});
   assert.equal(gm.values.get(CONTROL_KEY_V3).mode, "STOPPED");
 });
 
-test("manual immediate start opens one dedicated worker per target and reuses opening leases", async () => {
+test("manual immediate start opens one worker per category and reuses opening leases", async () => {
   const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
   const gm = createGm();
   const now = parseBeijingDateTime("2026-07-13T16:00:00");
@@ -234,10 +236,24 @@ test("manual immediate start opens one dedicated worker per target and reuses op
   assert.equal(state.mode, "MANUAL");
   assert.equal(state.running, true);
   assert.equal(state.pollPhase, "BURST");
-  assert.equal(gm.opened.length, 3);
-  assert.deepEqual(gm.opened.map((url) => parseWorkerMarker(new URL(url)).slotId), ["ME-1", "ME-2", "FE-1"]);
+  assert.equal(gm.opened.length, 2);
+  assert.deepEqual(gm.opened.map((url) => parseWorkerMarker(new URL(url)).slotId), ["ME-1", "FE-1"]);
   await runtime.startImmediate();
-  assert.equal(gm.opened.length, 3);
+  assert.equal(gm.opened.length, 2);
+});
+
+test("a healthy manual ME hot page prevents the controller from opening another ME worker", async () => {
+  const now = parseBeijingDateTime("2026-07-20T10:00:00");
+  const gm = createGm({ [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR, DEMO_TECH, DEMO_FREE) });
+  const hotDom = await fixture("hot_me_two_targets.html", "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me");
+  const hotRuntime = await createAssistantRuntime({ pageWindow: hotDom.window, gm, autoTimers: false, tabId: "manual-me", now: () => now, fetchFn: serverClock(() => now) });
+  await hotRuntime.initialize();
+
+  const controllerDom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const controller = await createAssistantRuntime({ pageWindow: controllerDom.window, gm, autoTimers: false, tabId: "controller", now: () => now, fetchFn: serverClock(() => now) });
+  await controller.initialize();
+  await controller.startImmediate();
+  assert.deepEqual(gm.opened.map((url) => parseWorkerMarker(new URL(url)).slotId), ["FE-1"]);
 });
 
 test("manual immediate start publishes RUNNING without waiting for a hanging clock calibration", async () => {
@@ -246,6 +262,7 @@ test("manual immediate start publishes RUNNING without waiting for a hanging clo
   const freshClock = { source: "BNBU_SERVER", offsetMs: 0, rttMs: 0, uncertaintyMs: 500, syncedAt: now, error: null };
   const gm = createGm({
     [MIGRATION_KEY_V12]: true,
+    [MIGRATION_KEY_V123]: true,
     [CONTROL_KEY_V3]: {
       version: 3,
       generation: 1,
@@ -307,6 +324,7 @@ test("a running manual detail page scans before an unavailable clock calibration
   };
   const gm = createGm({
     [MIGRATION_KEY_V12]: true,
+    [MIGRATION_KEY_V123]: true,
     [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR),
     [CONTROL_KEY_V3]: {
       version: 3,
@@ -441,6 +459,39 @@ test("one unmarked ME hot page scans every configured ME target", async () => {
   assert.equal(statuses["DEMO2001:1001"].status, "WAITLIST_AVAILABLE");
   assert.equal(statuses["DEMO1001:1001"].workerSlotId, "HOT-ME");
   assert.equal(statuses["DEMO2001:1001"].workerSlotId, "HOT-ME");
+});
+
+test("one ME worker queues and submits both same-category targets", async () => {
+  const dom = await fixture("hot_me_two_targets.html", createWorkerUrl(
+    "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me",
+    { slotId: "ME-1", category: "ME", generation: 2, targetIds: ["DEMO1001:1001", "DEMO2001:1001"] },
+    "open-me"
+  ));
+  let selectCalls = 0;
+  let waitingCalls = 0;
+  dom.window.selectItem = () => {
+    selectCalls += 1;
+    return dom.window.confirm("Select Example Major Elective (1001), are you sure?");
+  };
+  dom.window.joinWaiting = () => {
+    waitingCalls += 1;
+    return dom.window.confirm("Join Waiting List of Example Technology Course (1001)?");
+  };
+  let now = parseBeijingDateTime("2026-07-20T10:00:00");
+  const gm = createGm({
+    [MIGRATION_KEY_V12]: true,
+    [MIGRATION_KEY_V123]: true,
+    [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR, DEMO_TECH)
+  });
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "ME-worker", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  await runtime.startImmediate();
+  assert.equal(selectCalls, 1);
+  assert.equal(waitingCalls, 0);
+  assert.equal((await runtime.getState()).actionQueue.length, 1);
+  now += 250;
+  await runtime.scan({ allowActions: true });
+  assert.equal(waitingCalls, 1);
 });
 
 test("a worker returning to the overview keeps its session assignment and verifies success", async () => {

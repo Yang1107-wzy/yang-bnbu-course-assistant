@@ -10,6 +10,12 @@ const ALLOWED_FIELDS = new Set([
   "currentStatus",
   "action",
   "reason",
+  "category",
+  "slotId",
+  "workerPhase",
+  "openingTokenMismatch",
+  "pageType",
+  "failureStage",
   "pagePath",
   "error"
 ]);
@@ -50,6 +56,12 @@ const CSV_FIELDS = [
   "currentStatus",
   "action",
   "reason",
+  "category",
+  "slotId",
+  "workerPhase",
+  "openingTokenMismatch",
+  "pageType",
+  "failureStage",
   "pagePath",
   "error"
 ];

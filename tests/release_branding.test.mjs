@@ -26,10 +26,10 @@ test("renders the Yang brand and course-selection blessing", () => {
   assert.doesNotMatch(panel.root.textContent, /MIS 自动选课助手 v3/);
 });
 
-test("build contract publishes the branded v1.2.2 non-commercial userscript metadata", async () => {
+test("build contract publishes the branded v1.2.3 non-commercial userscript metadata", async () => {
   const source = await readFile(repoFile("build.mjs"), "utf8");
   assert.match(source, /@name\s+Yang 抢课脚本/);
-  assert.match(source, /@version\s+1\.2\.2/);
+  assert.match(source, /@version\s+1\.2\.3/);
   assert.match(source, /@author\s+Yang1107-wzy/);
   assert.match(source, /@license\s+Yang-NCEL-1\.0/);
   assert.match(source, /仅供学习交流/);

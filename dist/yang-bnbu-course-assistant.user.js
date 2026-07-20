@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.2.2
+// @version      1.2.3
 // @description  仅供学习交流的 BNBU MIS 可视化研究助手；禁止商业使用和学校正式选课
 // @author       Yang1107-wzy
 // @license      Yang-NCEL-1.0
@@ -466,7 +466,7 @@
   var createDefaultConfig = () => ({
     version: 3,
     actionSpacingMs: 250,
-    maxWorkers: 6,
+    maxWorkers: 2,
     maxActionsPerMinute: 6,
     sameCourseCooldownMs: 8e3,
     maxConsecutiveErrors: 3,
@@ -498,7 +498,7 @@
     return {
       version: 3,
       actionSpacingMs: numeric("actionSpacingMs"),
-      maxWorkers: numeric("maxWorkers"),
+      maxWorkers: Math.min(2, Math.max(1, numeric("maxWorkers"))),
       maxActionsPerMinute: numeric("maxActionsPerMinute"),
       sameCourseCooldownMs: numeric("sameCourseCooldownMs"),
       maxConsecutiveErrors: numeric("maxConsecutiveErrors"),
@@ -536,7 +536,7 @@
     const windows = validateSelectionWindows(config.selectionWindows);
     errors.push(...windows.errors);
     if (!Number.isFinite(config.clockSyncIntervalMs) || config.clockSyncIntervalMs < 6e4) errors.push("clock-sync-interval-invalid");
-    if (!Number.isInteger(config.maxWorkers) || config.maxWorkers < 1 || config.maxWorkers > 6) errors.push("max-workers-invalid");
+    if (!Number.isInteger(config.maxWorkers) || config.maxWorkers < 1 || config.maxWorkers > 2) errors.push("max-workers-invalid");
     return { valid: errors.length === 0, errors };
   };
   var saveableConfig = (config) => cleanConfig(config);
@@ -583,6 +583,12 @@
     "currentStatus",
     "action",
     "reason",
+    "category",
+    "slotId",
+    "workerPhase",
+    "openingTokenMismatch",
+    "pageType",
+    "failureStage",
     "pagePath",
     "error"
   ]);
@@ -617,6 +623,12 @@
     "currentStatus",
     "action",
     "reason",
+    "category",
+    "slotId",
+    "workerPhase",
+    "openingTokenMismatch",
+    "pageType",
+    "failureStage",
     "pagePath",
     "error"
   ];
@@ -1167,6 +1179,7 @@
     REGISTERED: "\u5DF2\u62A2\u5230",
     FAILED: "\u6267\u884C\u5931\u8D25",
     ERROR: "\u6267\u884C\u5931\u8D25",
+    WORKER_FAILED: "Worker \u6253\u5F00\u5931\u8D25",
     WORKER_OFFLINE: "Worker \u5931\u8054"
   });
   var statusText = (current) => {
@@ -1209,7 +1222,7 @@
           const current = view.courseStatuses?.[id];
           ref.textContent = statusText(current);
           complete &&= current?.status === "REGISTERED";
-          error ||= ["FAILED", "ERROR", "WORKER_OFFLINE"].includes(current?.status);
+          error ||= ["FAILED", "ERROR", "WORKER_FAILED", "WORKER_OFFLINE"].includes(current?.status);
         }
         root.dataset.complete = String(complete);
         root.dataset.error = String(error);
@@ -1442,37 +1455,29 @@
   // src/worker_pool.js
   var targetId = (target2) => target2.id ?? `${target2.courseCode}:${target2.section}`;
   var CATEGORIES = ["ME", "FE"];
+  var WORKER_GENERATION = 2;
+  var HOT_PREFIX = "HOT-";
+  var OPEN_RETRY_DELAYS_MS = [5e3, 15e3, 3e4, 6e4];
   var parseHash = (value) => new URL(`https://yang.invalid/?${String(value ?? "").replace(/^#/, "")}`).searchParams;
-  var groupedTargets = (targets) => CATEGORIES.map((category) => ({ category, targets: targets.filter((target2) => target2.category === category) })).filter((group) => group.targets.length > 0);
-  var buildWorkerAssignments = (targets = [], maxWorkers = 6) => {
-    const groups = groupedTargets(targets);
-    const limit = Math.max(1, Math.min(Number(maxWorkers) || 6, targets.length || 1));
-    if (targets.length === 0) return [];
-    const counts = Object.fromEntries(groups.map((group) => [group.category, 1]));
-    let allocated = groups.length;
-    while (allocated < limit) {
-      const candidate = groups.filter((group) => counts[group.category] < group.targets.length).sort((left, right) => right.targets.length / (counts[right.category] + 1) - left.targets.length / (counts[left.category] + 1))[0];
-      if (!candidate) break;
-      counts[candidate.category] += 1;
-      allocated += 1;
-    }
-    return groups.flatMap((group) => {
-      const slots = Array.from({ length: counts[group.category] }, (_, index) => ({
-        slotId: `${group.category}-${index + 1}`,
-        category: group.category,
-        targetIds: []
-      }));
-      group.targets.forEach((target2, index) => slots[index % slots.length].targetIds.push(targetId(target2)));
-      return slots;
-    });
-  };
+  var healthyHeartbeat = (entry, now, heartbeatTtlMs) => Boolean(entry?.ownerId && entry.phase !== "FAILED" && Number.isFinite(entry.heartbeatAt) && now - entry.heartbeatAt <= heartbeatTtlMs);
+  var buildWorkerAssignments = (targets = [], _maxWorkers = 2, generation = WORKER_GENERATION) => CATEGORIES.map((category) => {
+    const matching = targets.filter((target2) => target2.category === category);
+    if (matching.length === 0) return null;
+    return {
+      slotId: `${category}-1`,
+      category,
+      generation,
+      targetIds: matching.map(targetId)
+    };
+  }).filter(Boolean);
   var createWorkerUrl = (baseUrl, slot, openingToken) => {
     const url = new URL(baseUrl);
     const hash = parseHash(url.hash);
     hash.set("yang-worker", slot.slotId);
     hash.set("yang-category", slot.category);
-    hash.set("yang-targets", slot.targetIds.join(","));
+    hash.set("yang-generation", String(slot.generation ?? WORKER_GENERATION));
     hash.set("yang-opening", openingToken);
+    hash.delete("yang-targets");
     url.hash = hash.toString();
     return url.href;
   };
@@ -1481,19 +1486,56 @@
     const slotId = hash.get("yang-worker");
     const category = hash.get("yang-category");
     const openingToken = hash.get("yang-opening");
-    const targetIds = String(hash.get("yang-targets") ?? "").split(",").filter(Boolean);
-    if (!slotId || !CATEGORIES.includes(category) || !openingToken || targetIds.length === 0) return null;
-    if (!slotId.startsWith(`${category}-`)) return null;
-    return { slotId, category, targetIds, openingToken };
+    const generation = Number(hash.get("yang-generation"));
+    if (!slotId || !CATEGORIES.includes(category) || !openingToken || !Number.isInteger(generation)) return null;
+    if (slotId !== `${category}-1`) return null;
+    return { slotId, category, generation, openingToken };
   };
-  var workerSlotIsHealthy = (registry = {}, slotId, now = Date.now(), heartbeatTtlMs = 6e4) => {
-    const current = registry?.[slotId];
-    return Boolean(current?.ownerId && Number.isFinite(current.heartbeatAt) && now - current.heartbeatAt <= heartbeatTtlMs);
+  var workerSlotIsHealthy = (registry = {}, slotId, now = Date.now(), heartbeatTtlMs = 6e4) => healthyHeartbeat(registry?.[slotId], now, heartbeatTtlMs);
+  var categoryCoverageIsHealthy = (registry = {}, category, now = Date.now(), heartbeatTtlMs = 6e4) => Object.values(registry).some((entry) => entry?.category === category && healthyHeartbeat(entry, now, heartbeatTtlMs));
+  var heartbeatHotPage = (registry = {}, category, workerId, now = Date.now(), lastScanAt) => {
+    if (!CATEGORIES.includes(category) || !workerId) return { updated: false, registry };
+    const slotId = `${HOT_PREFIX}${category}:${workerId}`;
+    return {
+      updated: true,
+      registry: {
+        ...registry,
+        [slotId]: {
+          slotId,
+          category,
+          role: "HOT",
+          phase: "ONLINE",
+          ownerId: workerId,
+          heartbeatAt: now,
+          lastScanAt: lastScanAt ?? registry?.[slotId]?.lastScanAt ?? null
+        }
+      }
+    };
   };
-  var reserveWorkerOpening = (registry = {}, slot, openingToken, now = Date.now(), openingTtlMs = 3e4, heartbeatTtlMs = 6e4) => {
+  var retryDelay = (retryCount) => OPEN_RETRY_DELAYS_MS[Math.min(Math.max(0, retryCount - 1), OPEN_RETRY_DELAYS_MS.length - 1)];
+  var reserveWorkerOpening = (registry = {}, slot, openingToken, now = Date.now(), openingTtlMs = 15e3, heartbeatTtlMs = 6e4) => {
     const current = registry?.[slot.slotId];
     const openingHealthy = current?.phase === "OPENING" && current.openingUntil > now;
-    if (openingHealthy || workerSlotIsHealthy(registry, slot.slotId, now, heartbeatTtlMs)) {
+    if (openingHealthy || categoryCoverageIsHealthy(registry, slot.category, now, heartbeatTtlMs)) {
+      return { reserved: false, registry };
+    }
+    if (current?.phase === "OPENING" && current.openingUntil <= now) {
+      const retryCount = (current.retryCount ?? 0) + 1;
+      const retryAt = current.openingUntil + retryDelay(retryCount);
+      const failed = {
+        ...current,
+        phase: "FAILED",
+        openingToken: null,
+        openingUntil: null,
+        retryCount,
+        retryAt,
+        lastError: "worker-open-timeout"
+      };
+      const nextRegistry = { ...registry, [slot.slotId]: failed };
+      if (now < retryAt) return { reserved: false, registry: nextRegistry };
+      return reserveWorkerOpening(nextRegistry, slot, openingToken, now, openingTtlMs, heartbeatTtlMs);
+    }
+    if (current?.phase === "FAILED" && Number.isFinite(current.retryAt) && current.retryAt > now) {
       return { reserved: false, registry };
     }
     return {
@@ -1503,41 +1545,42 @@
         [slot.slotId]: {
           slotId: slot.slotId,
           category: slot.category,
+          generation: slot.generation ?? WORKER_GENERATION,
           targetIds: [...slot.targetIds],
+          role: "WORKER",
           phase: "OPENING",
           openingToken,
           openingUntil: now + openingTtlMs,
           ownerId: null,
           heartbeatAt: null,
+          retryCount: current?.retryCount ?? 0,
+          retryAt: null,
+          lastError: null,
           lastScanAt: current?.lastScanAt ?? null
         }
       }
     };
   };
-  var reserveWorkerOpenings = (registry = {}, slots = [], tokenFactory, now = Date.now(), openingTtlMs = 6e4, heartbeatTtlMs = 6e4) => {
+  var reserveWorkerOpenings = (registry = {}, slots = [], tokenFactory, now = Date.now(), openingTtlMs = 15e3, heartbeatTtlMs = 6e4) => {
     let nextRegistry = registry;
     const reservations = [];
     for (const slot of slots) {
       const openingToken = tokenFactory(slot);
-      const result = reserveWorkerOpening(
-        nextRegistry,
-        slot,
-        openingToken,
-        now,
-        openingTtlMs,
-        heartbeatTtlMs
-      );
-      if (!result.reserved) continue;
+      const result = reserveWorkerOpening(nextRegistry, slot, openingToken, now, openingTtlMs, heartbeatTtlMs);
       nextRegistry = result.registry;
-      reservations.push({ slot, openingToken });
+      if (result.reserved) reservations.push({ slot, openingToken });
     }
-    return { registry: nextRegistry, reservations };
+    return { registry: nextRegistry, reservations, changed: nextRegistry !== registry };
   };
   var claimWorkerSlot = (registry = {}, slot, workerId, openingToken, now = Date.now(), heartbeatTtlMs = 6e4) => {
     const current = registry?.[slot.slotId];
     const ownedByAnother = workerSlotIsHealthy(registry, slot.slotId, now, heartbeatTtlMs) && current.ownerId !== workerId;
     const tokenMismatch = current?.openingToken && current.openingToken !== openingToken && current.ownerId !== workerId;
-    if (ownedByAnother || tokenMismatch) return { claimed: false, registry };
+    const expectedGeneration = Number(slot.generation ?? WORKER_GENERATION);
+    const generationMismatch = Number(current?.generation ?? expectedGeneration) !== expectedGeneration;
+    if (ownedByAnother || tokenMismatch || generationMismatch) {
+      return { claimed: false, registry, reason: ownedByAnother ? "worker-owned" : generationMismatch ? "worker-generation-mismatch" : "opening-token-mismatch" };
+    }
     return {
       claimed: true,
       registry: {
@@ -1545,12 +1588,17 @@
         [slot.slotId]: {
           slotId: slot.slotId,
           category: slot.category,
+          generation: slot.generation ?? WORKER_GENERATION,
           targetIds: [...slot.targetIds],
+          role: "WORKER",
           phase: "ONLINE",
           openingToken: null,
           openingUntil: null,
           ownerId: workerId,
           heartbeatAt: now,
+          retryCount: 0,
+          retryAt: null,
+          lastError: null,
           lastScanAt: current?.lastScanAt ?? null
         }
       }
@@ -1572,6 +1620,24 @@
       }
     };
   };
+  var markWorkerPhase = (registry = {}, slotId, workerId, phase, now = Date.now(), lastError = null) => {
+    const current = registry?.[slotId];
+    if (!current || current.ownerId !== workerId || !["ONLINE", "SUBMITTING", "FAILED"].includes(phase)) {
+      return { updated: false, registry };
+    }
+    return {
+      updated: true,
+      registry: {
+        ...registry,
+        [slotId]: {
+          ...current,
+          phase,
+          heartbeatAt: now,
+          lastError
+        }
+      }
+    };
+  };
 
   // src/assistant_runtime.js
   var CONFIG_KEY_V2 = "bnbu.courseAssistant.config.v2";
@@ -1579,8 +1645,10 @@
   var CONFIG_KEY_V3 = "bnbu.courseAssistant.config.v3";
   var CONTROL_KEY_V3 = "bnbu.courseAssistant.control.v3";
   var PANEL_LAYOUT_KEY = "bnbu.courseAssistant.panelLayout.v1";
-  var WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v1";
+  var WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v2";
   var MIGRATION_KEY_V12 = "bnbu.courseAssistant.migration.v1.2.0";
+  var MIGRATION_KEY_V123 = "bnbu.courseAssistant.migration.v1.2.3";
+  var LEGACY_WORKER_POOL_KEY = "bnbu.courseAssistant.workerPool.v1";
   var LOG_KEY_V3 = "bnbu.courseAssistant.logs.v3";
   var WORKER_ID_KEY_V3 = "bnbu.courseAssistant.workerId.v3";
   var WORKER_SESSION_KEY = "bnbu.courseAssistant.workerAssignment.v1";
@@ -1657,7 +1725,9 @@
     const panelLayoutStorage = buildStorage(PANEL_LAYOUT_KEY, gm2, null);
     const complianceStorage = buildStorage(COMPLIANCE_ACK_KEY, gm2, null);
     const workerPoolStorage = buildStorage(WORKER_POOL_KEY, gm2, {});
+    const legacyWorkerPoolStorage = buildStorage(LEGACY_WORKER_POOL_KEY, gm2, {});
     const migrationStorage = buildStorage(MIGRATION_KEY_V12, gm2, false);
+    const migrationV123Storage = buildStorage(MIGRATION_KEY_V123, gm2, false);
     const logStorage = buildStorage(LOG_KEY_V3, gm2, []);
     const logger = new AuditLogger(logStorage, 300);
     let panelLayout = await panelLayoutStorage.get();
@@ -1671,11 +1741,18 @@
       config = {
         ...config,
         actionSpacingMs: 250,
-        maxWorkers: 6,
+        maxWorkers: 2,
         controllerHeartbeatTimeoutMs: 6e4
       };
       await workerPoolStorage.set({});
       await migrationStorage.set(true);
+    }
+    const firstV123Run = await migrationV123Storage.get() !== true;
+    if (firstV123Run) {
+      config = { ...config, maxWorkers: 2, controllerHeartbeatTimeoutMs: 6e4 };
+      await workerPoolStorage.set({});
+      await legacyWorkerPoolStorage.delete();
+      await migrationV123Storage.set(true);
     }
     let state = await stateStorage.get();
     if (state?.version !== 3) state = createRuntimeStateV3(now());
@@ -1683,7 +1760,7 @@
     if (control?.version !== 3) {
       control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
     }
-    if (firstV12Run) {
+    if (firstV12Run || firstV123Run) {
       state = stopRuntime(state, now());
       control = { ...createRuntimeControlV3(now()), selectionWindows: config.selectionWindows };
     }
@@ -1715,13 +1792,10 @@
     const workerDetailUrl = savedWorkerAssignment?.detailUrl ?? null;
     const isController = pageType === "OVERVIEW" && !workerMarker;
     const isHotPage = pageType === "DETAIL" && !workerMarker;
-    const workerSlot = workerMarker ? {
-      slotId: workerMarker.slotId,
-      category: workerMarker.category,
-      targetIds: workerMarker.targetIds
-    } : null;
+    const workerSlot = workerMarker ? buildWorkerAssignments(config.targets, config.maxWorkers).find((slot) => slot.slotId === workerMarker.slotId && slot.category === workerMarker.category && slot.generation === workerMarker.generation) ?? null : null;
     let hotPageCategory = null;
     let workerActive = false;
+    let lastWorkerClaimReason = null;
     let panel = null;
     let workerPanel = null;
     let complianceDialog = null;
@@ -1827,9 +1901,15 @@
       return registry;
     };
     const claimCurrentWorkerUnlocked = async () => {
-      if (!workerSlot || !workerMarker) return false;
-      const validAssignment = workerAssignments().find((slot) => slot.slotId === workerSlot.slotId && slot.category === workerSlot.category && slot.targetIds.join(",") === workerSlot.targetIds.join(","));
-      if (!validAssignment) return false;
+      if (!workerSlot || !workerMarker) {
+        lastWorkerClaimReason = "worker-assignment-invalid";
+        return false;
+      }
+      const validAssignment = workerAssignments().find((slot) => slot.slotId === workerSlot.slotId && slot.category === workerSlot.category && slot.generation === workerMarker.generation);
+      if (!validAssignment) {
+        lastWorkerClaimReason = "worker-generation-mismatch";
+        return false;
+      }
       const claim = claimWorkerSlot(
         await readWorkerPool(),
         workerSlot,
@@ -1838,14 +1918,24 @@
         now(),
         config.controllerHeartbeatTimeoutMs
       );
-      if (!claim.claimed) return false;
+      if (!claim.claimed) {
+        lastWorkerClaimReason = claim.reason ?? "worker-claim-rejected";
+        return false;
+      }
       await writeWorkerPool(claim.registry);
       const verified = await readWorkerPool();
-      return verified[workerSlot.slotId]?.ownerId === workerId;
+      const claimed = verified[workerSlot.slotId]?.ownerId === workerId;
+      lastWorkerClaimReason = claimed ? null : "worker-claim-not-persisted";
+      return claimed;
     };
-    const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", claimCurrentWorkerUnlocked);
+    const claimCurrentWorker = () => withBrowserLock(pageWindow, "yang-worker-pool-v2", claimCurrentWorkerUnlocked);
     const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
-      if (isHotPage) return workerActive;
+      if (isHotPage) {
+        if (!workerActive || !hotPageCategory) return false;
+        const heartbeat2 = heartbeatHotPage(await readWorkerPool(), hotPageCategory, workerId, now(), lastScanAt);
+        await writeWorkerPool(heartbeat2.registry);
+        return heartbeat2.updated;
+      }
       if (!workerActive || !workerSlot) return false;
       const heartbeat = heartbeatWorkerSlot(await readWorkerPool(), workerSlot.slotId, workerId, now(), lastScanAt);
       if (!heartbeat.updated) {
@@ -1858,9 +1948,16 @@
     };
     const heartbeatCurrentWorker = (lastScanAt) => withBrowserLock(
       pageWindow,
-      "yang-worker-pool-v1",
+      "yang-worker-pool-v2",
       () => heartbeatCurrentWorkerUnlocked(lastScanAt)
     );
+    const markCurrentWorkerPhase = async (phase, lastError = null) => {
+      if (!workerSlot || !workerActive) return false;
+      const changed = markWorkerPhase(await readWorkerPool(), workerSlot.slotId, workerId, phase, now(), lastError);
+      if (!changed.updated) return false;
+      await writeWorkerPool(changed.registry);
+      return true;
+    };
     const updatePanel = async () => {
       const current = await readState();
       const workerPool = await readWorkerPool();
@@ -1873,12 +1970,26 @@
       for (const slot of workerAssignments()) {
         const poolEntry = workerPool[slot.slotId];
         const healthy = workerSlotIsHealthy(workerPool, slot.slotId, now(), config.controllerHeartbeatTimeoutMs);
+        const categoryHealthy = categoryCoverageIsHealthy(workerPool, slot.category, now(), config.controllerHeartbeatTimeoutMs);
         for (const id of slot.targetIds) {
           const previous = courseStatuses[id];
           if (["REGISTERED", "WAITING", "SUBMITTING", "FAILED"].includes(previous?.status)) {
-            courseStatuses[id] = { ...previous, workerSlotId: slot.slotId };
+            courseStatuses[id] = { ...previous, workerSlotId: previous.workerSlotId ?? slot.slotId };
           } else if (poolEntry?.phase === "OPENING" && poolEntry.openingUntil > now()) {
             courseStatuses[id] = { ...previous, status: "OPENING", reason: "\u6B63\u5728\u6253\u5F00 Worker", workerSlotId: slot.slotId };
+          } else if (poolEntry?.phase === "FAILED" && poolEntry.retryAt > now()) {
+            courseStatuses[id] = {
+              ...previous,
+              status: "WORKER_FAILED",
+              reason: `Worker \u6253\u5F00\u5931\u8D25\uFF1A${poolEntry.lastError ?? "unknown"}\uFF0C\u7B49\u5F85\u91CD\u8BD5`,
+              workerSlotId: slot.slotId
+            };
+          } else if (categoryHealthy) {
+            courseStatuses[id] = previous ?? {
+              status: "SCANNING",
+              reason: "\u7C7B\u522B\u9875\u5DF2\u5728\u7EBF\uFF0C\u7B49\u5F85\u626B\u63CF",
+              workerSlotId: slot.slotId
+            };
           } else if (!healthy && current.mode !== "STOPPED") {
             courseStatuses[id] = { ...previous, status: "WORKER_OFFLINE", reason: "Worker \u5931\u8054\uFF0C\u7B49\u5F85\u6062\u590D", workerSlotId: slot.slotId };
           } else if (previous) {
@@ -1910,16 +2021,16 @@
         slots,
         () => randomId(pageWindow),
         now(),
-        6e4,
+        15e3,
         config.controllerHeartbeatTimeoutMs
       );
-      if (reservation.reservations.length > 0) await writeWorkerPool(reservation.registry);
+      if (reservation.changed) await writeWorkerPool(reservation.registry);
       for (const { slot, openingToken } of reservation.reservations) {
         gm2.openInTab?.(createWorkerUrl(links[slot.category], slot, openingToken), { active: false, insert: true, setParent: true });
       }
       await updatePanel();
     };
-    const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v1", ensureWorkersUnlocked);
+    const ensureWorkers = () => withBrowserLock(pageWindow, "yang-worker-pool-v2", ensureWorkersUnlocked);
     const ensureWorkersInBackground = () => {
       void ensureWorkers().catch((error) => {
         void log({ level: "warn", event: "worker-prewarm-failed", reason: error?.message ?? "worker-prewarm-failed" });
@@ -1980,8 +2091,10 @@
       };
       const committed = await writeState(prepared);
       if (!committed.running) return null;
+      await markCurrentWorkerPhase("SUBMITTING");
       const result = executePageAction({ row: evaluation.row, target: evaluation.target, actionType: evaluation.decision.action, pageWindow });
       if (!result.ok) {
+        await markCurrentWorkerPhase("ONLINE", result.reason);
         const failed = await readState();
         const pendingActions = { ...failed.pendingActions };
         delete pendingActions[targetId2];
@@ -2040,6 +2153,7 @@
         let current = await readState();
         const targets = assignedTargets(category);
         if (workerSlot && pageType === "DETAIL" && category && category !== workerSlot.category) {
+          await markCurrentWorkerPhase("FAILED", "worker-category-mismatch");
           workerActive = false;
           clearReload();
           return { stopped: true, reason: "worker-category-mismatch" };
@@ -2128,7 +2242,15 @@
           if (!result && current.actionQueue?.some((item) => item.workerId === workerId)) scheduleActionAttempt(plan.evaluations);
         }
         message = `\u5DF2\u626B\u63CF ${rows.length} \u6761\u8BFE\u7A0B\u884C`;
-        await log({ level: "info", event: "scan", reason: message });
+        await log({
+          level: "info",
+          event: "scan",
+          category: sourceCategory(),
+          slotId: sourceSlotId(),
+          workerPhase: workerActive ? "ONLINE" : "FAILED",
+          pageType,
+          reason: message
+        });
         await updatePanel();
         if (autoTimers && pageType === "OVERVIEW" && workerDetailUrl && workerActive) {
           if (returnToDetailTimer) pageWindow.clearTimeout(returnToDetailTimer);
@@ -2325,8 +2447,22 @@
         if (isHotPage) {
           hotPageCategory = localCategoryFromRows(parseCourseRows(document));
           workerActive = true;
+          if (hotPageCategory) await heartbeatCurrentWorker(now());
         } else {
           workerActive = await claimCurrentWorker();
+          if (!workerActive) {
+            await log({
+              level: "error",
+              event: "worker-claim-failed",
+              category: workerMarker?.category,
+              slotId: workerMarker?.slotId,
+              workerPhase: "FAILED",
+              openingTokenMismatch: lastWorkerClaimReason === "opening-token-mismatch",
+              pageType,
+              failureStage: "worker-claim",
+              reason: lastWorkerClaimReason ?? "worker-claim-rejected"
+            });
+          }
         }
         const visibleSlot = workerSlot ?? {
           slotId: hotPageCategory ? `HOT-${hotPageCategory}` : "HOT",

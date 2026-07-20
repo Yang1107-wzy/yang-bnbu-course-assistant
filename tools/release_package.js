@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-export const RELEASE_VERSION = "1.2.2";
+export const RELEASE_VERSION = "1.2.3";
 export const RELEASE_ASSETS = Object.freeze({
   userscript: "yang-bnbu-course-assistant.user.js",
   archive: `yang-bnbu-course-assistant-v${RELEASE_VERSION}.zip`,

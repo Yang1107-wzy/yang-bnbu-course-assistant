@@ -115,5 +115,21 @@ test("accepts the default v3 configuration", () => {
   assert.deepEqual(validateConfig(config), { valid: true, errors: [] });
   assert.equal(config.actionSpacingMs, 250);
   assert.equal(config.controllerHeartbeatTimeoutMs, 60000);
-  assert.equal(config.maxWorkers, 6);
+  assert.equal(config.maxWorkers, 2);
+});
+
+test("clamps a legacy six-worker config without replacing customized targets", () => {
+  const legacy = {
+    ...createDefaultConfig(),
+    maxWorkers: 6,
+    targets: [{
+      courseCode: "CUSTOM123",
+      courseName: "Customized Course",
+      section: "1001",
+      category: "ME"
+    }]
+  };
+  const migrated = migrateConfig(legacy);
+  assert.equal(migrated.maxWorkers, 2);
+  assert.equal(migrated.targets[0].courseCode, "CUSTOM123");
 });

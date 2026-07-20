@@ -33,7 +33,7 @@ const cloneWindows = (windows) => windows.map(({ id, label, enabled, startText, 
 export const createDefaultConfig = () => ({
   version: 3,
   actionSpacingMs: 250,
-  maxWorkers: 6,
+  maxWorkers: 2,
   maxActionsPerMinute: 6,
   sameCourseCooldownMs: 8000,
   maxConsecutiveErrors: 3,
@@ -68,7 +68,7 @@ const cleanConfig = (input) => {
   return {
     version: 3,
     actionSpacingMs: numeric("actionSpacingMs"),
-    maxWorkers: numeric("maxWorkers"),
+    maxWorkers: Math.min(2, Math.max(1, numeric("maxWorkers"))),
     maxActionsPerMinute: numeric("maxActionsPerMinute"),
     sameCourseCooldownMs: numeric("sameCourseCooldownMs"),
     maxConsecutiveErrors: numeric("maxConsecutiveErrors"),
@@ -115,7 +115,7 @@ export const validateConfig = (config) => {
   const windows = validateSelectionWindows(config.selectionWindows);
   errors.push(...windows.errors);
   if (!Number.isFinite(config.clockSyncIntervalMs) || config.clockSyncIntervalMs < 60000) errors.push("clock-sync-interval-invalid");
-  if (!Number.isInteger(config.maxWorkers) || config.maxWorkers < 1 || config.maxWorkers > 6) errors.push("max-workers-invalid");
+  if (!Number.isInteger(config.maxWorkers) || config.maxWorkers < 1 || config.maxWorkers > 2) errors.push("max-workers-invalid");
   return { valid: errors.length === 0, errors };
 };
 

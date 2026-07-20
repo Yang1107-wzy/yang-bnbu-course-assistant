@@ -155,6 +155,7 @@ const STATUS_LABELS = Object.freeze({
   REGISTERED: "已抢到",
   FAILED: "执行失败",
   ERROR: "执行失败",
+  WORKER_FAILED: "Worker 打开失败",
   WORKER_OFFLINE: "Worker 失联"
 });
 
@@ -203,7 +204,7 @@ export const createWorkerStatusBar = (document, { slot, targets = [], observerOn
         const current = view.courseStatuses?.[id];
         ref.textContent = statusText(current);
         complete &&= current?.status === "REGISTERED";
-        error ||= ["FAILED", "ERROR", "WORKER_OFFLINE"].includes(current?.status);
+        error ||= ["FAILED", "ERROR", "WORKER_FAILED", "WORKER_OFFLINE"].includes(current?.status);
       }
       root.dataset.complete = String(complete);
       root.dataset.error = String(error);

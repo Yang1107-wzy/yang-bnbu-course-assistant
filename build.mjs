@@ -4,7 +4,7 @@ import { build } from "esbuild";
 const metadata = `// ==UserScript==
 // @name         Yang 抢课脚本
 // @namespace    https://github.com/Yang1107-wzy/yang-bnbu-course-assistant
-// @version      1.2.2
+// @version      1.2.3
 // @description  仅供学习交流的 BNBU MIS 可视化研究助手；禁止商业使用和学校正式选课
 // @author       Yang1107-wzy
 // @license      Yang-NCEL-1.0
