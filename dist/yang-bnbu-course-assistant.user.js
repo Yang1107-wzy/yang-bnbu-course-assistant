@@ -1113,9 +1113,8 @@
     card.append(scroll);
     let acceptance = null;
     let accept = null;
-    let scrolledToEnd = !required;
     const updateAccept = () => {
-      if (accept) accept.disabled = required && !(scrolledToEnd && acceptance.checked);
+      if (accept) accept.disabled = required && !acceptance.checked;
     };
     if (required) {
       const check = element(document, "label", "ca-compliance-check");
@@ -1124,10 +1123,6 @@
       acceptance.dataset.complianceAcceptance = "true";
       check.append(acceptance, element(document, "span", "", "\u6211\u5DF2\u9605\u8BFB\u3001\u7406\u89E3\u5E76\u540C\u610F\u4EE5\u4E0A\u9650\u5236"));
       card.append(check);
-      scroll.addEventListener("scroll", () => {
-        scrolledToEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1;
-        updateAccept();
-      });
       acceptance.addEventListener("change", updateAccept);
     }
     const actions = element(document, "div", "ca-compliance-actions");
