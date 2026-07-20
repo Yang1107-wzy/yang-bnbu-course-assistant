@@ -81,6 +81,10 @@
     actionQueue: (state.actionQueue ?? []).filter((item) => item.key !== key),
     actionLock: null
   });
+  var deferAction = (state, key) => ({
+    ...state,
+    actionLock: state.actionLock?.key === key ? null : state.actionLock
+  });
 
   // src/course_parser.js
   var CourseStatus = Object.freeze({
@@ -1460,6 +1464,9 @@
   var OPEN_RETRY_DELAYS_MS = [5e3, 15e3, 3e4, 6e4];
   var parseHash = (value) => new URL(`https://yang.invalid/?${String(value ?? "").replace(/^#/, "")}`).searchParams;
   var healthyHeartbeat = (entry, now, heartbeatTtlMs) => Boolean(entry?.ownerId && entry.phase !== "FAILED" && Number.isFinite(entry.heartbeatAt) && now - entry.heartbeatAt <= heartbeatTtlMs);
+  var pruneExpiredHotPages = (registry, now, heartbeatTtlMs) => Object.fromEntries(
+    Object.entries(registry ?? {}).filter(([, entry]) => entry?.role !== "HOT" || Number.isFinite(entry.heartbeatAt) && now - entry.heartbeatAt <= heartbeatTtlMs)
+  );
   var buildWorkerAssignments = (targets = [], _maxWorkers = 2, generation = WORKER_GENERATION) => CATEGORIES.map((category) => {
     const matching = targets.filter((target2) => target2.category === category);
     if (matching.length === 0) return null;
@@ -1493,13 +1500,14 @@
   };
   var workerSlotIsHealthy = (registry = {}, slotId, now = Date.now(), heartbeatTtlMs = 6e4) => healthyHeartbeat(registry?.[slotId], now, heartbeatTtlMs);
   var categoryCoverageIsHealthy = (registry = {}, category, now = Date.now(), heartbeatTtlMs = 6e4) => Object.values(registry).some((entry) => entry?.category === category && healthyHeartbeat(entry, now, heartbeatTtlMs));
-  var heartbeatHotPage = (registry = {}, category, workerId, now = Date.now(), lastScanAt) => {
+  var heartbeatHotPage = (registry = {}, category, workerId, now = Date.now(), lastScanAt, heartbeatTtlMs = 6e4) => {
     if (!CATEGORIES.includes(category) || !workerId) return { updated: false, registry };
+    const activeRegistry = pruneExpiredHotPages(registry, now, heartbeatTtlMs);
     const slotId = `${HOT_PREFIX}${category}:${workerId}`;
     return {
       updated: true,
       registry: {
-        ...registry,
+        ...activeRegistry,
         [slotId]: {
           slotId,
           category,
@@ -1507,17 +1515,18 @@
           phase: "ONLINE",
           ownerId: workerId,
           heartbeatAt: now,
-          lastScanAt: lastScanAt ?? registry?.[slotId]?.lastScanAt ?? null
+          lastScanAt: lastScanAt ?? activeRegistry?.[slotId]?.lastScanAt ?? null
         }
       }
     };
   };
   var retryDelay = (retryCount) => OPEN_RETRY_DELAYS_MS[Math.min(Math.max(0, retryCount - 1), OPEN_RETRY_DELAYS_MS.length - 1)];
   var reserveWorkerOpening = (registry = {}, slot, openingToken, now = Date.now(), openingTtlMs = 15e3, heartbeatTtlMs = 6e4) => {
-    const current = registry?.[slot.slotId];
+    const activeRegistry = pruneExpiredHotPages(registry, now, heartbeatTtlMs);
+    const current = activeRegistry?.[slot.slotId];
     const openingHealthy = current?.phase === "OPENING" && current.openingUntil > now;
-    if (openingHealthy || categoryCoverageIsHealthy(registry, slot.category, now, heartbeatTtlMs)) {
-      return { reserved: false, registry };
+    if (openingHealthy || categoryCoverageIsHealthy(activeRegistry, slot.category, now, heartbeatTtlMs)) {
+      return { reserved: false, registry: activeRegistry };
     }
     if (current?.phase === "OPENING" && current.openingUntil <= now) {
       const retryCount = (current.retryCount ?? 0) + 1;
@@ -1531,17 +1540,17 @@
         retryAt,
         lastError: "worker-open-timeout"
       };
-      const nextRegistry = { ...registry, [slot.slotId]: failed };
+      const nextRegistry = { ...activeRegistry, [slot.slotId]: failed };
       if (now < retryAt) return { reserved: false, registry: nextRegistry };
       return reserveWorkerOpening(nextRegistry, slot, openingToken, now, openingTtlMs, heartbeatTtlMs);
     }
     if (current?.phase === "FAILED" && Number.isFinite(current.retryAt) && current.retryAt > now) {
-      return { reserved: false, registry };
+      return { reserved: false, registry: activeRegistry };
     }
     return {
       reserved: true,
       registry: {
-        ...registry,
+        ...activeRegistry,
         [slot.slotId]: {
           slotId: slot.slotId,
           category: slot.category,
@@ -1932,7 +1941,14 @@
     const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
       if (isHotPage) {
         if (!workerActive || !hotPageCategory) return false;
-        const heartbeat2 = heartbeatHotPage(await readWorkerPool(), hotPageCategory, workerId, now(), lastScanAt);
+        const heartbeat2 = heartbeatHotPage(
+          await readWorkerPool(),
+          hotPageCategory,
+          workerId,
+          now(),
+          lastScanAt,
+          config.controllerHeartbeatTimeoutMs
+        );
         await writeWorkerPool(heartbeat2.registry);
         return heartbeat2.updated;
       }
@@ -1951,13 +1967,18 @@
       "yang-worker-pool-v2",
       () => heartbeatCurrentWorkerUnlocked(lastScanAt)
     );
-    const markCurrentWorkerPhase = async (phase, lastError = null) => {
+    const markCurrentWorkerPhaseUnlocked = async (phase, lastError = null) => {
       if (!workerSlot || !workerActive) return false;
       const changed = markWorkerPhase(await readWorkerPool(), workerSlot.slotId, workerId, phase, now(), lastError);
       if (!changed.updated) return false;
       await writeWorkerPool(changed.registry);
       return true;
     };
+    const markCurrentWorkerPhase = (phase, lastError = null) => withBrowserLock(
+      pageWindow,
+      "yang-worker-pool-v2",
+      () => markCurrentWorkerPhaseUnlocked(phase, lastError)
+    );
     const updatePanel = async () => {
       const current = await readState();
       const workerPool = await readWorkerPool();
@@ -2070,7 +2091,11 @@
       current = await readState();
       if (current.actionLock?.ownerId !== workerId || current.actionLock?.key !== claim.claimed.key) return null;
       const evaluation = evaluations.find((item) => item.target.id === claim.claimed.targetId && item.decision.action === claim.claimed.actionType);
-      if (!evaluation || !actionSignatureMatches(claim.claimed, evaluation)) {
+      if (!evaluation) {
+        await writeState(deferAction(current, claim.claimed.key));
+        return null;
+      }
+      if (!actionSignatureMatches(claim.claimed, evaluation)) {
         await writeState(releaseAction(current, claim.claimed.key));
         return null;
       }

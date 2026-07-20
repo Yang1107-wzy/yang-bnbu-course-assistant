@@ -10,6 +10,13 @@ const healthyHeartbeat = (entry, now, heartbeatTtlMs) => Boolean(entry?.ownerId
   && Number.isFinite(entry.heartbeatAt)
   && now - entry.heartbeatAt <= heartbeatTtlMs);
 
+const pruneExpiredHotPages = (registry, now, heartbeatTtlMs) => Object.fromEntries(
+  Object.entries(registry ?? {}).filter(([, entry]) => (
+    entry?.role !== "HOT"
+    || (Number.isFinite(entry.heartbeatAt) && now - entry.heartbeatAt <= heartbeatTtlMs)
+  ))
+);
+
 export const buildWorkerAssignments = (targets = [], _maxWorkers = 2, generation = WORKER_GENERATION) => CATEGORIES
   .map((category) => {
     const matching = targets.filter((target) => target.category === category);
@@ -59,14 +66,16 @@ export const heartbeatHotPage = (
   category,
   workerId,
   now = Date.now(),
-  lastScanAt
+  lastScanAt,
+  heartbeatTtlMs = 60000
 ) => {
   if (!CATEGORIES.includes(category) || !workerId) return { updated: false, registry };
+  const activeRegistry = pruneExpiredHotPages(registry, now, heartbeatTtlMs);
   const slotId = `${HOT_PREFIX}${category}:${workerId}`;
   return {
     updated: true,
     registry: {
-      ...registry,
+      ...activeRegistry,
       [slotId]: {
         slotId,
         category,
@@ -74,7 +83,7 @@ export const heartbeatHotPage = (
         phase: "ONLINE",
         ownerId: workerId,
         heartbeatAt: now,
-        lastScanAt: lastScanAt ?? registry?.[slotId]?.lastScanAt ?? null
+        lastScanAt: lastScanAt ?? activeRegistry?.[slotId]?.lastScanAt ?? null
       }
     }
   };
@@ -90,10 +99,11 @@ export const reserveWorkerOpening = (
   openingTtlMs = 15000,
   heartbeatTtlMs = 60000
 ) => {
-  const current = registry?.[slot.slotId];
+  const activeRegistry = pruneExpiredHotPages(registry, now, heartbeatTtlMs);
+  const current = activeRegistry?.[slot.slotId];
   const openingHealthy = current?.phase === "OPENING" && current.openingUntil > now;
-  if (openingHealthy || categoryCoverageIsHealthy(registry, slot.category, now, heartbeatTtlMs)) {
-    return { reserved: false, registry };
+  if (openingHealthy || categoryCoverageIsHealthy(activeRegistry, slot.category, now, heartbeatTtlMs)) {
+    return { reserved: false, registry: activeRegistry };
   }
 
   if (current?.phase === "OPENING" && current.openingUntil <= now) {
@@ -108,19 +118,19 @@ export const reserveWorkerOpening = (
       retryAt,
       lastError: "worker-open-timeout"
     };
-    const nextRegistry = { ...registry, [slot.slotId]: failed };
+    const nextRegistry = { ...activeRegistry, [slot.slotId]: failed };
     if (now < retryAt) return { reserved: false, registry: nextRegistry };
     return reserveWorkerOpening(nextRegistry, slot, openingToken, now, openingTtlMs, heartbeatTtlMs);
   }
 
   if (current?.phase === "FAILED" && Number.isFinite(current.retryAt) && current.retryAt > now) {
-    return { reserved: false, registry };
+    return { reserved: false, registry: activeRegistry };
   }
 
   return {
     reserved: true,
     registry: {
-      ...registry,
+      ...activeRegistry,
       [slot.slotId]: {
         slotId: slot.slotId,
         category: slot.category,

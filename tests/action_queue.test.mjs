@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { actionSignatureMatches, claimNextAction, enqueueCandidates, finishAction } from "../src/action_queue.js";
+import { actionSignatureMatches, claimNextAction, deferAction, enqueueCandidates, finishAction } from "../src/action_queue.js";
 
 const candidate = (courseCode, action = "SELECT") => ({
   target: { id: `${courseCode}:1001`, courseCode, section: "1001" },
@@ -54,4 +54,12 @@ test("rejects a page action whose function or argument changed after it was queu
   const changed = candidate("DEMO1001");
   changed.row.selectAction.argument = "different-item";
   assert.equal(actionSignatureMatches(queued, changed), false);
+});
+
+test("releases a navigation-page lock without deleting the FIFO head", () => {
+  const queue = enqueueCandidates([], [candidate("DEMO1001"), candidate("DEMO2001")], "ME-tab", 1000);
+  const first = claimNextAction({ actionQueue: queue, actionLock: null, lastActionAt: null }, "ME-tab", 2000, 250);
+  const deferred = deferAction(first.state, first.claimed.key);
+  assert.equal(deferred.actionLock, null);
+  assert.deepEqual(deferred.actionQueue.map((item) => item.courseCode), ["DEMO1001", "DEMO2001"]);
 });

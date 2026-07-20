@@ -137,3 +137,10 @@ test("a claimed worker remains category coverage while submitting", () => {
   assert.equal(submitting.registry["ME-1"].phase, "SUBMITTING");
   assert.equal(categoryCoverageIsHealthy(submitting.registry, "ME", 3000, 60000), true);
 });
+
+test("a hot-page heartbeat prunes expired manual page registrations", () => {
+  const stale = heartbeatHotPage({}, "ME", "closed-tab", 1000, 1000);
+  const fresh = heartbeatHotPage(stale.registry, "ME", "active-tab", 70001, 70001, 60000);
+  assert.equal("HOT-ME:closed-tab" in fresh.registry, false);
+  assert.equal(fresh.registry["HOT-ME:active-tab"].phase, "ONLINE");
+});

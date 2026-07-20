@@ -69,3 +69,8 @@ export const releaseAction = (state, key) => ({
   actionQueue: (state.actionQueue ?? []).filter((item) => item.key !== key),
   actionLock: null
 });
+
+export const deferAction = (state, key) => ({
+  ...state,
+  actionLock: state.actionLock?.key === key ? null : state.actionLock
+});

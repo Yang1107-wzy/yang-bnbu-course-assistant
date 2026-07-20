@@ -15,6 +15,7 @@ import {
   createAssistantRuntime
 } from "../src/assistant_runtime.js";
 import { createDefaultConfig } from "../src/config_manager.js";
+import { createRuntimeControlV3, createRuntimeStateV3 } from "../src/runtime_state.js";
 import { parseBeijingDateTime } from "../src/time_scheduler.js";
 import { createWorkerUrl, parseWorkerMarker } from "../src/worker_pool.js";
 
@@ -508,6 +509,46 @@ test("a worker returning to the overview keeps its session assignment and verifi
   assert.equal(dom.window.document.querySelector("#bnbu-course-assistant"), null);
   assert.match(dom.window.document.querySelector("#yang-worker-status").textContent, /ME-1/);
   assert.equal((await runtime.getState()).courseStatuses["DEMO1001:1001"].status, "REGISTERED");
+});
+
+test("a worker navigation page preserves a queued same-category action until detail rows return", async () => {
+  const dom = await fixture("overview.html", "https://mis.bnbu.edu.cn/mis/student/es/elective.do");
+  const markedDetail = createWorkerUrl(
+    "https://mis.bnbu.edu.cn/mis/student/es/eleDetail.do?id=me",
+    { slotId: "ME-1", category: "ME", generation: 2, targetIds: ["DEMO1001:1001", "DEMO2001:1001"] },
+    "open-me"
+  );
+  dom.window.sessionStorage.setItem(WORKER_SESSION_KEY, JSON.stringify({
+    marker: parseWorkerMarker(new URL(markedDetail)),
+    detailUrl: markedDetail
+  }));
+  const now = parseBeijingDateTime("2026-07-20T10:00:01");
+  const baseState = createRuntimeStateV3(now);
+  const baseControl = createRuntimeControlV3(now);
+  const queuedAction = {
+    key: "DEMO2001:1001:JOIN_WAITLIST",
+    workerId: "ME-worker",
+    priority: 0,
+    targetId: "DEMO2001:1001",
+    courseCode: "DEMO2001",
+    section: "1001",
+    actionType: "JOIN_WAITLIST",
+    functionName: "joinWaiting",
+    argument: "sei-demo2001",
+    observedAt: now - 1000
+  };
+  const gm = createGm({
+    [MIGRATION_KEY_V12]: true,
+    [MIGRATION_KEY_V123]: true,
+    [CONFIG_KEY_V3]: configWithTargets(DEMO_MAJOR, DEMO_TECH),
+    [CONTROL_KEY_V3]: { ...baseControl, mode: "MANUAL", running: true, pollPhase: "NORMAL" },
+    [STATE_KEY_V3]: { ...baseState, mode: "MANUAL", running: true, pollPhase: "NORMAL", actionQueue: [queuedAction] }
+  });
+  const runtime = await createAssistantRuntime({ pageWindow: dom.window, gm, autoTimers: false, tabId: "ME-worker", now: () => now, fetchFn: serverClock(() => now) });
+  await runtime.initialize();
+  const state = await runtime.getState();
+  assert.equal(state.actionLock, null);
+  assert.deepEqual(state.actionQueue, [queuedAction]);
 });
 
 test("immediate start joins a ready waiting list without queue or credit inspection", async () => {

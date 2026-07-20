@@ -1,4 +1,4 @@
-import { actionSignatureMatches, claimNextAction, enqueueCandidates, finishAction, releaseAction } from "./action_queue.js";
+import { actionSignatureMatches, claimNextAction, deferAction, enqueueCandidates, finishAction, releaseAction } from "./action_queue.js";
 import { executePageAction } from "./action_executor.js";
 import { createKeyValueStorage } from "./browser_storage.js";
 import { clockSyncIsFresh, correctedNow, syncServerClock } from "./clock_sync.js";
@@ -363,7 +363,14 @@ export const createAssistantRuntime = async ({
   const heartbeatCurrentWorkerUnlocked = async (lastScanAt) => {
     if (isHotPage) {
       if (!workerActive || !hotPageCategory) return false;
-      const heartbeat = heartbeatHotPage(await readWorkerPool(), hotPageCategory, workerId, now(), lastScanAt);
+      const heartbeat = heartbeatHotPage(
+        await readWorkerPool(),
+        hotPageCategory,
+        workerId,
+        now(),
+        lastScanAt,
+        config.controllerHeartbeatTimeoutMs
+      );
       await writeWorkerPool(heartbeat.registry);
       return heartbeat.updated;
     }
@@ -383,13 +390,18 @@ export const createAssistantRuntime = async ({
     () => heartbeatCurrentWorkerUnlocked(lastScanAt)
   );
 
-  const markCurrentWorkerPhase = async (phase, lastError = null) => {
+  const markCurrentWorkerPhaseUnlocked = async (phase, lastError = null) => {
     if (!workerSlot || !workerActive) return false;
     const changed = markWorkerPhase(await readWorkerPool(), workerSlot.slotId, workerId, phase, now(), lastError);
     if (!changed.updated) return false;
     await writeWorkerPool(changed.registry);
     return true;
   };
+  const markCurrentWorkerPhase = (phase, lastError = null) => withBrowserLock(
+    pageWindow,
+    "yang-worker-pool-v2",
+    () => markCurrentWorkerPhaseUnlocked(phase, lastError)
+  );
 
   const updatePanel = async () => {
     const current = await readState();
@@ -517,7 +529,11 @@ export const createAssistantRuntime = async ({
     if (current.actionLock?.ownerId !== workerId || current.actionLock?.key !== claim.claimed.key) return null;
     const evaluation = evaluations.find((item) => item.target.id === claim.claimed.targetId
       && item.decision.action === claim.claimed.actionType);
-    if (!evaluation || !actionSignatureMatches(claim.claimed, evaluation)) {
+    if (!evaluation) {
+      await writeState(deferAction(current, claim.claimed.key));
+      return null;
+    }
+    if (!actionSignatureMatches(claim.claimed, evaluation)) {
       await writeState(releaseAction(current, claim.claimed.key));
       return null;
     }
